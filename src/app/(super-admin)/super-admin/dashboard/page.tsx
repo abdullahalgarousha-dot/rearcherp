@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 import { db } from "@/lib/db"
 import { Building2, Shield, Search, MoreVertical } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
