@@ -1,4 +1,5 @@
 export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
 import { redirect } from "next/navigation"
 import { auth } from "@/auth"
