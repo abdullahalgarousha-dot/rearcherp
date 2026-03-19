@@ -1,0 +1,1152 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model SubscriptionPlan {
+  id             String   @id @default(cuid())
+  name           String   @unique
+  description    String?
+  price          Float    @default(0)
+  currency       String   @default("SAR")
+  allowedModules Json     @default("[]")
+  maxUsers       Int      @default(0)  // 0 = unlimited
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  tenants        Tenant[]
+}
+
+model Tenant {
+  id                 String              @id @default(cuid())
+  slug               String              @unique
+  name               String
+  status             String              @default("ACTIVE")
+  subscriptionTier   String              @default("STANDARD")
+  driveClientId      String?
+  driveClientSecret  String?
+  driveRefreshToken  String?
+  driveRootFolderId  String?
+  subscriptionStart  DateTime?
+  subscriptionEnd    DateTime?
+  setupCompleted     Boolean             @default(false)
+  customDomain       String?             @unique
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  planId             String?
+  attendances        Attendance[]
+  auditLogs          AuditLog[]
+  branches           Branch[]
+  brands             Brand[]
+  clients            Client[]
+  companyEvents      CompanyEvent[]
+  companyProfiles    CompanyProfile[]
+  complaints         Complaint[]
+  contractors        Contractor[]
+  dailyReports       DailyReport[]
+  designStages       DesignStage[]
+  designStageFiles   DesignStageFile[]
+  documentRequests   DocumentRequest[]
+  drawings           Drawing[]
+  drawingRevisions   DrawingRevision[]
+  hrStats            EmployeeHRStats[]
+  employeeProfiles   EmployeeProfile[]
+  expenses           Expense[]
+  fileComments       FileComment[]
+  irRevisions        IRRevision[]
+  inAppNotifications InAppNotification[]
+  inspectionRequests InspectionRequest[]
+  invoices           Invoice[]
+  leaveRequests      LeaveRequest[]
+  loans              Loan[]
+  loanRequests       LoanRequest[]
+  loginAttempts      LoginAttempt[]
+  materialSubmittals MaterialSubmittal[]
+  menuLinks          MenuLink[]
+  milestones         Milestone[]
+  ncrs               NCR[]
+  ncrRevisions       NCRRevision[]
+  notifications      Notification[]
+  penalties          Penalty[]
+  pettyCashRequests  PettyCashRequest[]
+  custodySettlements CustodySettlementItem[]
+  projects           Project[]
+  roles              Role[]
+  salarySlips        SalarySlip[]
+  subContracts       SubContract[]
+  systemLogs         SystemLog[]
+  systemLookups      SystemLookup[]
+  systemSettings     SystemSetting[]
+  tasks              Task[]
+  plan               SubscriptionPlan?   @relation(fields: [planId], references: [id])
+  timeLogs           TimeLog[]
+  users              User[]
+  variationOrders    VariationOrder[]
+  vendors            Vendor[]
+  vendorContracts    VendorContract[]
+}
+
+model User {
+  id                    String              @id @default(cuid())
+  tenantId              String              @default("t_undefined")
+  name                  String?
+  email                 String              @unique
+  emailVerified         DateTime?
+  image                 String?
+  password              String?
+  role                  String              @default("SITE_ENGINEER")
+  twoFactorSecret       String?
+  twoFactorEnabled      Boolean             @default(false)
+  roleId                String?
+  attendances           Attendance[]
+  approvedReports       DailyReport[]       @relation("ApprovedReports")
+  createdReports        DailyReport[]       @relation("CreatedReports")
+  uploadedDesignFiles   DesignStageFile[]
+  approvedDrawings      DrawingRevision[]   @relation("DrawingApprovers")
+  uploadedDrawings      DrawingRevision[]
+  profile               EmployeeProfile?
+  fileComments          FileComment[]
+  irResponses           IRRevision[]        @relation("RespondedIRRevisions")
+  irRevisions           IRRevision[]        @relation("CreatedIRRevisions")
+  notificationsReceived InAppNotification[] @relation("UserNotifications")
+  approvedIRs           InspectionRequest[] @relation("ApprovedIRs")
+  createdIRs            InspectionRequest[] @relation("CreatedIRs")
+  approvedLeaves        LeaveRequest[]      @relation("ApproverLeaves")
+  reviewedLeaves        LeaveRequest[]      @relation("ReviewerLeaves")
+  leaveRequests         LeaveRequest[]      @relation("UserLeaves")
+  approvedSubmittals    MaterialSubmittal[] @relation("ApprovedSubmittals")
+  approvedNCRs          NCR[]               @relation("ApprovedNCRs")
+  createdNCRs           NCR[]               @relation("CreatedNCRs")
+  ncrResponses          NCRRevision[]       @relation("RespondedNCRRevisions")
+  ncrRevisions          NCRRevision[]       @relation("CreatedNCRRevisions")
+  notifications         Notification[]
+  pettyCashRequests     PettyCashRequest[]  @relation("CustodyRequester")
+  closedCustodies       PettyCashRequest[]  @relation("CustodyCloser")
+  custodySettlements    CustodySettlementItem[]
+  leadProjects          Project[]           @relation("LeadEngineer")
+  reportAttendances     ReportAttendee[]
+  systemLogs            SystemLog[]
+  timeLogs              TimeLog[]
+  userRole              Role?               @relation(fields: [roleId], references: [id])
+  tenant                Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  approvedVOs           VariationOrder[]
+  paidMilestones        VendorMilestone[]   @relation("PaidMilestones")
+  workLogs              WorkLog[]
+  assignedStages        DesignStage[]       @relation("DesignStageUsers")
+  projects              Project[]           @relation("ProjectEngineers")
+  assignedTasks         Task[]              @relation("TaskAssignees")
+}
+
+model EmployeeProfile {
+  id                 String            @id @default(cuid())
+  userId             String            @unique
+  employeeCode       String?           @unique
+  department         String
+  position           String
+  directManagerId    String?
+  nationality        String?
+  googleEmail        String?
+  photo              String?
+  idNumber           String?
+  idExpiry           DateTime?
+  passportNum        String?
+  passportExpiry     DateTime?
+  hireDate           DateTime?
+  leaveBalance       Int               @default(21)
+  insuranceProvider  String?
+  insurancePolicy    String?
+  insuranceExpiry    DateTime?
+  insuranceClass     String?
+  basicSalary        Float             @default(0)
+  housingAllowance   Float             @default(0)
+  transportAllowance Float             @default(0)
+  otherAllowance     Float             @default(0)
+  gosiDeduction      Float             @default(0)
+  totalSalary        Float             @default(0)
+  hourlyRate         Float?
+  iban               String?
+  bankName           String?
+  legacyBranch       String?           @map("branch")
+  legacyCurrency     String?           @default("SAR") @map("currency")
+  branchId           String?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  tenantId           String            @default("t_undefined")
+  complaints         Complaint[]
+  documentRequests   DocumentRequest[]
+  hrStats            EmployeeHRStats?
+  assignedBranch     Branch?           @relation(fields: [branchId], references: [id])
+  directManager      EmployeeProfile?  @relation("ManagerSubordinates", fields: [directManagerId], references: [id])
+  subordinates       EmployeeProfile[] @relation("ManagerSubordinates")
+  tenant             Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user               User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activeLoans        Loan[]
+  loans              LoanRequest[]
+  penalties          Penalty[]
+  salarySlips        SalarySlip[]
+}
+
+model Role {
+  id               String   @id @default(cuid())
+  tenantId         String   @default("t_undefined")
+  name             String   @unique
+  description      String?
+  permissionMatrix String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  users            User[]
+}
+
+model RolePermission {
+  id         String   @id @default(cuid())
+  roleName   String
+  module     String
+  canRead    Boolean  @default(false)
+  canWrite   Boolean  @default(false)
+  canApprove Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([roleName, module])
+}
+
+model SystemSettings {
+  id                String   @id @default(cuid())
+  key               String   @unique
+  value             String
+  description       String?
+  driveClientId     String?
+  driveClientSecret String?
+  driveRefreshToken String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model CompanyProfile {
+  id                 String   @id @default(cuid())
+  tenantId           String   @default("t_undefined")
+  companyNameAr      String   @default("اسم الشركة")
+  companyNameEn      String   @default("Company Name")
+  logoUrl            String?
+  vatNumber          String?
+  vatPercentage      Float    @default(15)
+  defaultCurrency    String   @default("SAR")
+  contactEmail       String?
+  contactPhone       String?
+  address            String?
+  driveClientId      String?
+  driveClientSecret  String?
+  driveRefreshToken  String?
+  driveFolderId      String?
+  workingHoursPerDay Float    @default(8)
+  workingDaysPerWeek Int      @default(5)
+  weekendDays        String   @default("Friday,Saturday")
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  tenant             Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model LeaveRequest {
+  id              String   @id @default(cuid())
+  tenantId        String   @default("t_undefined")
+  userId          String
+  type            String
+  startDate       DateTime
+  endDate         DateTime
+  reason          String?
+  status          String   @default("PENDING")
+  rejectionReason String?
+  attachmentLink  String?
+  reviewerId      String?
+  approverId      String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  approver        User?    @relation("ApproverLeaves", fields: [approverId], references: [id])
+  reviewer        User?    @relation("ReviewerLeaves", fields: [reviewerId], references: [id])
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user            User     @relation("UserLeaves", fields: [userId], references: [id])
+}
+
+model Brand {
+  id            String    @id @default(cuid())
+  tenantId      String    @default("t_undefined")
+  nameEn        String
+  nameAr        String
+  shortName     String?
+  fullName      String?
+  logoUrl       String?
+  primaryColor  String?   @default("#10b981")
+  accentColor   String?   @default("#059669")
+  taxNumber     String?
+  crNumber      String?
+  abbreviation  String?   // Prefix for ID generation (e.g., 'FTS')
+  isDefault     Boolean   @default(false)
+  email         String?
+  phone         String?
+  address       String?
+  vatNumber     String?
+  bankName      String?
+  iban          String?
+  accountHolder String?
+  addressAr     String?
+  addressEn     String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  projects      Project[]
+}
+
+model Project {
+  id                    String              @id @default(cuid())
+  tenantId              String              @default("t_undefined")
+  code                  String              @unique
+  name                  String
+  legacyClientName      String?             @map("client")
+  legacyClientAddr      String?             @map("clientAddress")
+  legacyClientVat       String?             @map("clientVat")
+  legacyClientBio       String?             @map("clientBio")
+  contractValue         Float
+  vatAmount             Float?
+  clientId              String?
+  hasRetention          Boolean             @default(false)
+  retentionPercentage   Float               @default(0)
+  totalRetentionHeld    Float               @default(0)
+  originalContractValue Float               @default(0)
+  startDate             DateTime?
+  totalDuration         Int?
+  contractDuration      Int?
+  completionPercent     Float               @default(0)
+  brandId               String
+  branchId              String?
+  year                  Int
+  sequence              Int
+  leadEngineerId        String?
+  disciplines           String?
+  driveFolderId         String?
+  driveLink             String?
+  driveSubFolderIds     String?
+  serviceType           String              @default("DESIGN")
+  status                String              @default("ACTIVE")
+  autoArchiveToDrive    Boolean             @default(false)
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+  dailyReports          DailyReport[]
+  designStages          DesignStage[]
+  drawings              Drawing[]
+  expenses              Expense[]
+  irs                   InspectionRequest[]
+  invoices              Invoice[]
+  milestones            Milestone[]
+  ncrs                  NCR[]
+  pettyCashRequests     PettyCashRequest[]
+  custodySettlements    CustodySettlementItem[]
+  branch                Branch?             @relation(fields: [branchId], references: [id])
+  brand                 Brand               @relation(fields: [brandId], references: [id])
+  client                Client?             @relation(fields: [clientId], references: [id])
+  leadEngineer          User?               @relation("LeadEngineer", fields: [leadEngineerId], references: [id])
+  tenant                Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  projectContractors    ProjectContractor[]
+  subContracts          SubContract[]
+  tasks                 Task[]
+  timeLogs              TimeLog[]
+  variationOrders       VariationOrder[]
+  vendorContracts       VendorContract[]
+  workLogs              WorkLog[]
+  engineers             User[]              @relation("ProjectEngineers")
+}
+
+model ProjectContractor {
+  id            String     @id @default(cuid())
+  projectId     String
+  contractorId  String
+  startDate     DateTime   @default(now())
+  durationDays  Int        @default(0)
+  contractValue Float      @default(0)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  contractor    Contractor @relation(fields: [contractorId], references: [id])
+  project       Project    @relation(fields: [projectId], references: [id])
+
+  @@unique([projectId, contractorId])
+}
+
+model Contractor {
+  id                 String              @id @default(cuid())
+  tenantId           String              @default("t_undefined")
+  companyName        String
+  contactPerson      String?
+  phone              String?
+  email              String?
+  specialty          String?
+  crNumber           String?
+  logo               String?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  tenant             Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  dailyReports       DailyReport[]
+  irs                InspectionRequest[]
+  ncrs               NCR[]
+  projectContractors ProjectContractor[]
+  vendorContracts    VendorContract[]    @relation("VendorContractor")
+}
+
+model Task {
+  id            String       @id @default(cuid())
+  tenantId      String       @default("t_undefined")
+  projectId     String
+  title         String
+  description   String?
+  status        String       @default("TODO")
+  start         DateTime     @default(now())
+  end           DateTime     @default(now())
+  progress      Float        @default(0)
+  dependencies  String?
+  type          String       @default("OFFICE")
+  designStageId String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  designStage   DesignStage? @relation(fields: [designStageId], references: [id])
+  project       Project      @relation(fields: [projectId], references: [id])
+  tenant        Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workLogs      WorkLog[]
+  assignees     User[]       @relation("TaskAssignees")
+}
+
+model WorkLog {
+  id          String   @id @default(cuid())
+  projectId   String
+  taskId      String?
+  userId      String
+  date        DateTime
+  hoursLogged Float
+  type        String   @default("OFFICE")
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  project     Project  @relation(fields: [projectId], references: [id])
+  task        Task?    @relation(fields: [taskId], references: [id])
+  user        User     @relation(fields: [userId], references: [id])
+}
+
+model TimeLog {
+  id          String   @id @default(cuid())
+  tenantId    String   @default("t_undefined")
+  projectId   String?
+  userId      String
+  date        DateTime
+  hoursLogged Float
+  type        String   @default("OFFICE")
+  cost        Float    @default(0)
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  project     Project? @relation(fields: [projectId], references: [id])
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id])
+}
+
+model DailyReport {
+  id                   String      @id @default(cuid())
+  tenantId             String      @default("t_undefined")
+  createdById          String
+  approvedById         String?
+  projectId            String
+  date                 DateTime
+  status               String      @default("PENDING")
+  content              String?
+  completionPercentage Float?
+  currentCompletion    Float       @default(0)
+  sitePhotos           String?
+  officeRef            String?
+  serial               Int         @default(1)
+  elapsedDays          Int?
+  contractorId         String?
+  totalManpower        Int?
+  materialsDelivered   String?
+  weather              String?
+  workPerformedToday   String?
+  plannedWorkTomorrow  String?
+  consultantStaff      String?
+  contractorData       String?
+  equipment            String?
+  delayDays            Int?
+  safetyStatus         String?
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
+  approvedBy           User?       @relation("ApprovedReports", fields: [approvedById], references: [id])
+  contractor           Contractor? @relation(fields: [contractorId], references: [id])
+  createdBy            User        @relation("CreatedReports", fields: [createdById], references: [id])
+  project              Project     @relation(fields: [projectId], references: [id])
+  tenant               Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model NCR {
+  id           String        @id @default(cuid())
+  tenantId     String        @default("t_undefined")
+  createdById  String
+  approvedById String?
+  projectId    String
+  officeRef    String?
+  contractorId String?
+  currentRev   Int           @default(0)
+  status       String        @default("PENDING")
+  severity     String?
+  description  String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  approvedBy   User?         @relation("ApprovedNCRs", fields: [approvedById], references: [id])
+  contractor   Contractor?   @relation(fields: [contractorId], references: [id])
+  createdBy    User          @relation("CreatedNCRs", fields: [createdById], references: [id])
+  project      Project       @relation(fields: [projectId], references: [id])
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  revisions    NCRRevision[]
+}
+
+model InspectionRequest {
+  id               String       @id @default(cuid())
+  tenantId         String       @default("t_undefined")
+  createdById      String
+  approvedById     String?
+  projectId        String
+  contractorId     String?
+  status           String       @default("PENDING")
+  type             String
+  date             DateTime
+  description      String?
+  contractorRef    String?
+  officeRef        String?
+  serial           Int          @default(1)
+  revision         Int          @default(0)
+  currentRev       Int          @default(0)
+  contractorReport String?
+  taskId           String?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  revisions        IRRevision[]
+  approvedBy       User?        @relation("ApprovedIRs", fields: [approvedById], references: [id])
+  contractor       Contractor?  @relation(fields: [contractorId], references: [id])
+  createdBy        User         @relation("CreatedIRs", fields: [createdById], references: [id])
+  project          Project      @relation(fields: [projectId], references: [id])
+  tenant           Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model MaterialSubmittal {
+  id           String   @id @default(cuid())
+  tenantId     String   @default("t_undefined")
+  approvedById String?
+  status       String   @default("PENDING")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  approvedBy   User?    @relation("ApprovedSubmittals", fields: [approvedById], references: [id])
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model ReportAttendee {
+  id        String   @id @default(cuid())
+  userId    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+model IRRevision {
+  id                String            @id @default(cuid())
+  tenantId          String            @default("t_undefined")
+  irId              String
+  userId            String
+  respondedById     String?
+  revNumber         Int               @default(0)
+  consultantFile    String?
+  contractorFile    String?
+  comments          String?
+  status            String            @default("PENDING")
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  inspectionRequest InspectionRequest @relation(fields: [irId], references: [id])
+  respondedBy       User?             @relation("RespondedIRRevisions", fields: [respondedById], references: [id])
+  tenant            Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user              User              @relation("CreatedIRRevisions", fields: [userId], references: [id])
+}
+
+model NCRRevision {
+  id             String   @id @default(cuid())
+  tenantId       String   @default("t_undefined")
+  ncrId          String
+  userId         String
+  respondedById  String?
+  revNumber      Int      @default(0)
+  consultantFile String?
+  contractorFile String?
+  status         String   @default("PENDING")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  ncr            NCR      @relation(fields: [ncrId], references: [id])
+  respondedBy    User?    @relation("RespondedNCRRevisions", fields: [respondedById], references: [id])
+  tenant         Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user           User     @relation("CreatedNCRRevisions", fields: [userId], references: [id])
+}
+
+model Attendance {
+  id        String    @id @default(cuid())
+  tenantId  String    @default("t_undefined")
+  userId    String
+  date      DateTime
+  checkIn   DateTime?
+  checkOut  DateTime?
+  status    String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id])
+}
+
+model SystemLog {
+  id        String   @id @default(cuid())
+  tenantId  String   @default("t_undefined")
+  userId    String
+  action    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+model DesignStage {
+  id           String            @id @default(cuid())
+  tenantId     String            @default("t_undefined")
+  projectId    String
+  name         String
+  order        Int               @default(0)
+  progress     Float             @default(0)
+  status       String            @default("PENDING")
+  description  String?
+  startDate    DateTime?
+  endDate      DateTime?
+  specialties  String?
+  requirements String?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  project      Project           @relation(fields: [projectId], references: [id])
+  tenant       Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  files        DesignStageFile[]
+  tasks        Task[]
+  assignees    User[]            @relation("DesignStageUsers")
+}
+
+model DesignStageFile {
+  id           String      @id @default(cuid())
+  tenantId     String      @default("t_undefined")
+  stageId      String
+  name         String?
+  uploadedById String?
+  url          String
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  stage        DesignStage @relation(fields: [stageId], references: [id])
+  tenant       Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  uploadedBy   User?       @relation(fields: [uploadedById], references: [id])
+}
+
+model LoanRequest {
+  id                 String          @id @default(cuid())
+  tenantId           String          @default("t_undefined")
+  profileId          String
+  amount             Float
+  installments       Int
+  monthlyInstallment Float           @default(0)
+  monthlyDeduction   Float
+  reason             String?
+  rejectionReason    String?
+  status             String          @default("PENDING")
+  hrApprovedAt       DateTime?
+  financeApprovedAt  DateTime?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  profile            EmployeeProfile @relation(fields: [profileId], references: [id])
+  tenant             Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model DocumentRequest {
+  id              String          @id @default(cuid())
+  tenantId        String          @default("t_undefined")
+  profileId       String
+  type            String
+  details         String?
+  rejectionReason String?
+  status          String          @default("PENDING")
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  profile         EmployeeProfile @relation(fields: [profileId], references: [id])
+  tenant          Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model Complaint {
+  id        String          @id @default(cuid())
+  tenantId  String          @default("t_undefined")
+  profileId String
+  subject   String
+  details   String?
+  status    String          @default("PENDING")
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+  profile   EmployeeProfile @relation(fields: [profileId], references: [id])
+  tenant    Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model EmployeeHRStats {
+  id                  String          @id @default(cuid())
+  tenantId            String          @default("t_undefined")
+  profileId           String          @unique
+  annualLeaveTotal    Int             @default(30)
+  annualLeaveUsed     Int             @default(0)
+  sickLeaveTotal      Int             @default(12)
+  sickLeaveUsed       Int             @default(0)
+  emergencyLeaveTotal Int             @default(5)
+  emergencyLeaveUsed  Int             @default(0)
+  remoteDaysTotal     Int             @default(12)
+  remoteDaysUsed      Int             @default(0)
+  exitPermitsTotal    Int             @default(10)
+  exitPermitsUsed     Int             @default(0)
+  workHoursMonth      Float           @default(0)
+  targetHours         Float           @default(0)
+  overtimeHours       Float           @default(0)
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+  profile             EmployeeProfile @relation(fields: [profileId], references: [id])
+  tenant              Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model Penalty {
+  id        String          @id @default(cuid())
+  tenantId  String          @default("t_undefined")
+  profileId String
+  reason    String
+  date      DateTime
+  amount    Float?
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+  profile   EmployeeProfile @relation(fields: [profileId], references: [id])
+  tenant    Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model Loan {
+  id               String          @id @default(cuid())
+  tenantId         String          @default("t_undefined")
+  profileId        String
+  totalAmount      Float
+  paidAmount       Float           @default(0)
+  remaining        Float
+  monthlyDeduction Float
+  status           String          @default("ACTIVE")
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  profile          EmployeeProfile @relation(fields: [profileId], references: [id])
+  tenant           Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model SalarySlip {
+  id                 String          @id @default(cuid())
+  tenantId           String          @default("t_undefined")
+  profileId          String
+  month              DateTime
+  basicSalary        Float
+  housingAllowance   Float
+  transportAllowance Float
+  otherAllowance     Float
+  totalIncome        Float
+  gosiDeduction      Float
+  penaltiesAmount    Float
+  loansAmount        Float
+  absenceAmount      Float
+  totalDeductions    Float
+  netSalary          Float
+  status             String          @default("GENERATED")
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  profile            EmployeeProfile @relation(fields: [profileId], references: [id])
+  tenant             Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([profileId, month])
+}
+
+model Branch {
+  id                 String            @id @default(cuid())
+  tenantId           String            @default("t_undefined")
+  nameEn             String
+  nameAr             String
+  location           String?
+  currencyCode       String            @default("SAR")
+  exchangeRateToBase Float             @default(1.0)
+  isMainBranch       Boolean           @default(false)
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  tenant             Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  employees          EmployeeProfile[]
+  projects           Project[]
+}
+
+model Invoice {
+  id              String    @id @default(cuid())
+  tenantId        String    @default("t_undefined")
+  projectId       String
+  uuid            String    @unique @default(uuid())
+  invoiceNumber   String
+  sequenceNumber  Int?
+  hash            String?
+  isLocked        Boolean   @default(false)
+  baseAmount      Float
+  retentionAmount Float     @default(0)
+  taxRate         Float     @default(0.15)
+  vatAmount       Float
+  totalAmount     Float
+  description     String?
+  date            DateTime
+  dueDate         DateTime?
+  paymentDate     DateTime?
+  status          String    @default("ISSUED")
+  file            String?
+  driveFileId     String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  project         Project   @relation(fields: [projectId], references: [id])
+  tenant          Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model Expense {
+  id               String   @id @default(cuid())
+  tenantId         String   @default("t_undefined")
+  projectId        String?
+  description      String
+  amountBeforeTax  Float
+  taxRate          Float    @default(0.15)
+  taxAmount        Float
+  totalAmount      Float
+  isTaxRecoverable Boolean  @default(true)
+  category         String
+  date             DateTime
+  receipt          String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  project          Project? @relation(fields: [projectId], references: [id])
+  tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model CompanyEvent {
+  id          String   @id @default(cuid())
+  tenantId    String   @default("t_undefined")
+  title       String
+  date        DateTime
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model Milestone {
+  id          String   @id @default(cuid())
+  tenantId    String   @default("t_undefined")
+  projectId   String
+  title       String
+  dueDate     DateTime
+  description String?
+  status      String   @default("PENDING")
+  amount      Float?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  project     Project  @relation(fields: [projectId], references: [id])
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model MenuLink {
+  id        String     @id @default(cuid())
+  tenantId  String     @default("t_undefined")
+  label     String
+  href      String
+  icon      String?
+  order     Int        @default(0)
+  isActive  Boolean    @default(true)
+  roles     String     @default("ALL")
+  parentId  String?
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  parent    MenuLink?  @relation("MenuChildren", fields: [parentId], references: [id])
+  children  MenuLink[] @relation("MenuChildren")
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model SystemSetting {
+  id          String   @id @default(cuid())
+  tenantId    String   @default("t_undefined")
+  key         String   @unique
+  value       String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model SystemLookup {
+  id        String   @id @default(cuid())
+  tenantId  String   @default("t_undefined")
+  category  String
+  value     String
+  labelEn   String
+  labelAr   String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([category, value])
+}
+
+model VariationOrder {
+  id             String    @id @default(cuid())
+  tenantId       String    @default("t_undefined")
+  projectId      String
+  title          String
+  description    String?
+  amount         Float
+  status         String    @default("PENDING")
+  approvalDocUrl String?
+  approvalDate   DateTime?
+  approvedById   String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  approvedBy     User?     @relation(fields: [approvedById], references: [id])
+  project        Project   @relation(fields: [projectId], references: [id])
+  tenant         Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model PettyCashRequest {
+  id               String    @id @default(cuid())
+  tenantId         String    @default("t_undefined")
+  projectId        String
+  userId           String
+  amount           Float
+  reason           String
+  status           String    @default("REQUESTED")
+  // Legacy receipt (kept for backwards compatibility)
+  receiptUrl       String?
+  vatAmount        Float     @default(0)
+  // Closure fields (set by accountant)
+  closedById       String?
+  closedAt         DateTime?
+  closedNotes      String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  project          Project   @relation(fields: [projectId], references: [id])
+  tenant           Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user             User      @relation("CustodyRequester", fields: [userId], references: [id])
+  closedBy         User?     @relation("CustodyCloser", fields: [closedById], references: [id])
+  settlementItems  CustodySettlementItem[]
+}
+
+model CustodySettlementItem {
+  id              String   @id @default(cuid())
+  requestId       String
+  tenantId        String   @default("t_undefined")
+  submittedById   String
+  projectId       String?
+  amount          Float
+  invoicePhotoUrl String?
+  description     String?
+  createdAt       DateTime @default(now())
+  request         PettyCashRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  submittedBy     User             @relation(fields: [submittedById], references: [id])
+  project         Project?         @relation(fields: [projectId], references: [id])
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model VendorContract {
+  id               String     @id @default(cuid())
+  vendorId         String
+  projectId        String
+  tenantId         String?    @default("t_undefined")
+  contractValue    Float
+  balance          Float
+  status           String     @default("ACTIVE")
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+  project          Project    @relation(fields: [projectId], references: [id])
+  tenant           Tenant?    @relation(fields: [tenantId], references: [id])
+  vendorContractor Contractor @relation("VendorContractor", fields: [vendorId], references: [id])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  tenantId  String?  @default("t_undefined")
+  title     String
+  message   String
+  priority  String   @default("NORMAL")
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  tenant    Tenant?  @relation(fields: [tenantId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+model Vendor {
+  id                 String        @id @default(cuid())
+  companyName        String
+  taxNumber          String?
+  isVatRegistered    Boolean       @default(false)
+  bankAccountDetails String?
+  specialty          String
+  contactPerson      String?
+  phone              String?
+  email              String?
+  tenantId           String        @default("t_undefined")
+  driveFolderId      String?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  subContracts       SubContract[]
+  tenant             Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model SubContract {
+  id            String            @id @default(cuid())
+  vendorId      String
+  projectId     String
+  totalAmount   Float
+  contractDate  DateTime
+  scopeOfWork   String?
+  driveFolderId String?
+  tenantId      String            @default("t_undefined")
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  project       Project           @relation(fields: [projectId], references: [id])
+  tenant        Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  vendor        Vendor            @relation(fields: [vendorId], references: [id])
+  milestones    VendorMilestone[]
+}
+
+model VendorMilestone {
+  id                     String      @id @default(cuid())
+  subContractId          String
+  description            String
+  amount                 Float
+  vatAmount              Float       @default(0)
+  dueDate                DateTime?
+  status                 String      @default("PENDING")
+  taxInvoiceUrl          String?
+  taxInvoiceDriveId      String?
+  transferReceiptUrl     String?
+  transferReceiptDriveId String?
+  paidAt                 DateTime?
+  paidById               String?
+  createdAt              DateTime    @default(now())
+  updatedAt              DateTime    @updatedAt
+  paidBy                 User?       @relation("PaidMilestones", fields: [paidById], references: [id])
+  subContract            SubContract @relation(fields: [subContractId], references: [id], onDelete: Cascade)
+}
+
+model Client {
+  id            String    @id @default(cuid())
+  clientCode    String    @unique
+  name          String
+  taxNumber     String?
+  phone         String?
+  email         String?
+  address       String?
+  tenantId      String    @default("t_undefined")
+  driveFolderId String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  projects      Project[]
+}
+
+model Drawing {
+  id          String            @id @default(cuid())
+  projectId   String
+  tenantId    String            @default("t_undefined")
+  drawingCode String
+  title       String
+  discipline  String
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  project     Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tenant      Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  revisions   DrawingRevision[]
+
+  @@unique([projectId, drawingCode])
+}
+
+model DrawingRevision {
+  id                String        @id @default(cuid())
+  tenantId          String        @default("t_undefined")
+  drawingId         String
+  versionNumber     Int
+  status            String        @default("PENDING")
+  googleDriveFileId String?
+  fileUrl           String?
+  uploadedById      String
+  approvedById      String?
+  changeReason      String?
+  approvalNotes     String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  approvedBy        User?         @relation("DrawingApprovers", fields: [approvedById], references: [id])
+  drawing           Drawing       @relation(fields: [drawingId], references: [id], onDelete: Cascade)
+  tenant            Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  uploadedBy        User          @relation(fields: [uploadedById], references: [id])
+  comments          FileComment[]
+
+  @@unique([drawingId, versionNumber])
+}
+
+model FileComment {
+  id         String          @id @default(cuid())
+  tenantId   String          @default("t_undefined")
+  revisionId String
+  userId     String
+  text       String
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+  revision   DrawingRevision @relation(fields: [revisionId], references: [id], onDelete: Cascade)
+  tenant     Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user       User            @relation(fields: [userId], references: [id])
+}
+
+model InAppNotification {
+  id        String   @id @default(cuid())
+  tenantId  String   @default("t_undefined")
+  userId    String
+  title     String
+  message   String
+  type      String
+  link      String?
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user      User     @relation("UserNotifications", fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  tenantId  String   @default("t_undefined")
+  userId    String?
+  action    String
+  details   String
+  ipAddress String?
+  createdAt DateTime @default(now())
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model LoginAttempt {
+  id        String   @id @default(cuid())
+  tenantId  String?
+  email     String
+  ipAddress String?
+  success   Boolean
+  createdAt DateTime @default(now())
+  tenant    Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}

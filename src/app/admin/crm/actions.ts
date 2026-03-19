@@ -1,0 +1,178 @@
+"use server"
+
+import { db } from "@/lib/db"
+import { auth } from "@/auth"
+import { revalidatePath } from "next/cache"
+import { hasPermission } from "@/lib/rbac"
+
+// ==========================================
+// DRIVE INTEGRATION HELPER
+// ==========================================
+async function triggerClientDriveFolders(tenantId: string, clientId: string, clientName: string) {
+    try {
+        const { getDriveSettings, createClientFolders } = await import('@/lib/google-drive')
+        const { driveFolderId: rootId } = await getDriveSettings(tenantId)
+        const folderMap = await createClientFolders(tenantId, clientName, rootId)
+        await (db as any).client.update({
+            where: { id: clientId },
+            data: { driveFolderId: folderMap.root }
+        })
+        console.log(`[Drive] Client "${clientName}" folder created: ${folderMap.root}`)
+    } catch (driveErr) {
+        console.warn(`[Drive] Failed to create client folders for "${clientName}" (non-blocking):`, driveErr)
+    }
+}
+
+// ----------------------------------------------------------------------
+// 1. DTO & Helper
+// ----------------------------------------------------------------------
+
+export type ClientDTO = {
+    id: string
+    clientCode: string
+    name: string
+    taxNumber: string | null
+    phone: string | null
+    email: string | null
+    address: string | null
+    tenantId: string | null
+    createdAt: Date
+}
+
+// ----------------------------------------------------------------------
+// 2. Client Management Actions
+// ----------------------------------------------------------------------
+
+export async function getAllClients(): Promise<ClientDTO[]> {
+    const session = await auth()
+    const canView = await hasPermission('crm', 'view')
+    if (!canView) throw new Error("Unauthorized")
+
+    const tenantId = (session?.user as any).tenantId
+    const clients = await (db as any).client.findMany({
+        where: { tenantId },
+        orderBy: { name: 'asc' }
+    })
+    return clients
+}
+
+export async function findOrCreateClient(clientName: string, additionalData?: {
+    address?: string
+    taxNumber?: string
+}): Promise<ClientDTO> {
+    const session = await auth()
+    const canCreate = await hasPermission('crm', 'createEdit')
+    if (!canCreate) throw new Error("Unauthorized")
+    const tenantId = (session?.user as any).tenantId
+
+    // Trim name
+    const name = clientName.trim()
+    if (!name) throw new Error("Client name is required")
+
+    // Check if exists
+    let client = await (db as any).client.findFirst({
+        where: {
+            tenantId,
+            name: { equals: name }
+        }
+    })
+
+    if (!client) {
+        // Generate code
+        const count = await (db as any).client.count({ where: { tenantId } })
+        const code = `CLI-${1000 + count + 1}`
+
+        client = await (db as any).client.create({
+            data: {
+                tenantId,
+                clientCode: code,
+                name: name,
+                address: additionalData?.address || null,
+                taxNumber: additionalData?.taxNumber || null,
+            }
+        })
+
+        // Fire Drive folder creation asynchronously (non-blocking)
+        triggerClientDriveFolders(tenantId, client.id, name)
+    }
+
+    revalidatePath("/admin/crm")
+    revalidatePath("/admin/projects")
+    return client
+}
+
+export async function updateClient(clientId: string, data: Partial<ClientDTO>) {
+    const session = await auth()
+    const canEdit = await hasPermission('crm', 'createEdit')
+    if (!canEdit) throw new Error("Unauthorized")
+    const tenantId = (session?.user as any).tenantId
+
+    const updated = await (db as any).client.update({
+        where: { id: clientId, tenantId },
+        data: {
+            name: data.name,
+            taxNumber: data.taxNumber,
+            phone: data.phone,
+            email: data.email,
+            address: data.address
+        }
+    })
+
+    revalidatePath("/admin/crm")
+    revalidatePath(`/admin/crm/${clientId}`)
+    return { success: true, client: updated }
+}
+
+export async function createClient(data: Partial<ClientDTO>) {
+    const session = await auth()
+    const canCreate = await hasPermission('crm', 'createEdit')
+    if (!canCreate) throw new Error("Unauthorized")
+    const tenantId = (session?.user as any).tenantId
+
+    if (!data.name || !data.name.trim()) throw new Error("Client name is required")
+
+    // Generate code
+    const count = await (db as any).client.count({ where: { tenantId } })
+    const code = `CLI-${1000 + count + 1}`
+
+    const newClient = await (db as any).client.create({
+        data: {
+            tenantId,
+            clientCode: code,
+            name: data.name.trim(),
+            taxNumber: data.taxNumber || null,
+            phone: data.phone || null,
+            email: data.email || null,
+            address: data.address || null,
+        }
+    })
+
+    // Fire Drive folder creation asynchronously (non-blocking)
+    triggerClientDriveFolders(tenantId, newClient.id, newClient.name)
+
+    revalidatePath("/admin/crm")
+    return newClient
+}
+
+export async function deleteClient(clientId: string) {
+    const session = await auth()
+    const canDelete = await hasPermission('crm', 'delete')
+    if (!canDelete) throw new Error("Unauthorized: Requires CRM Delete permission")
+    const tenantId = (session?.user as any).tenantId
+
+    // Check if there are linked projects
+    const count = await (db as any).project.count({
+        where: { clientId }
+    })
+
+    if (count > 0) {
+        throw new Error(`Cannot delete client. They have ${count} linked projects.`)
+    }
+
+    await (db as any).client.delete({
+        where: { id: clientId, tenantId }
+    })
+
+    revalidatePath("/admin/crm")
+    return { success: true }
+}

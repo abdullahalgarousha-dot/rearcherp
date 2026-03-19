@@ -1,0 +1,128 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@media print {
+    @page {
+        size: A4 portrait;
+        margin: 0;
+    }
+
+    body {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+        background-color: white !important;
+    }
+
+    /* إخفاء كل عناصر الداش بورد الافتراضية */
+    nav,
+    aside,
+    header,
+    .sidebar,
+    .navbar,
+    button,
+    .no-print {
+        display: none !important;
+    }
+
+    /* التأكد من أن الحاوية تأخذ كامل الصفحة */
+    .print-container {
+        width: 210mm !important;
+        min-height: 297mm !important;
+        margin: 0 auto !important;
+        padding: 15mm !important;
+        box-shadow: none !important;
+        display: block !important;
+    }
+
+    /* إجبار الصور على الظهور */
+    img {
+        max-width: 100% !important;
+        display: block !important;
+        break-inside: avoid;
+    }
+}
+
+@layer base {
+    :root {
+        /* ── Vision UI Palette ───────────────────────────── */
+        --background: 0 0% 100%;              /* Pure White */
+        --foreground: 215 28% 17%;            /* Deep Navy #1e293b */
+
+        --card: 0 0% 100%;
+        --card-foreground: 215 28% 17%;
+
+        --popover: 0 0% 100%;
+        --popover-foreground: 215 28% 17%;
+
+        --primary: 215 28% 17%;              /* Deep Navy #1e293b */
+        --primary-foreground: 210 40% 98%;
+
+        --secondary: 210 40% 96.1%;
+        --secondary-foreground: 215 28% 17%;
+
+        --muted: 210 40% 96.1%;
+        --muted-foreground: 215.4 16.3% 46.9%;
+
+        --accent: 210 40% 96.1%;
+        --accent-foreground: 215 28% 17%;
+
+        --destructive: 0 84.2% 60.2%;
+        --destructive-foreground: 210 40% 98%;
+
+        --border: 214.3 31.8% 91.4%;
+        --input: 214.3 31.8% 91.4%;
+        --ring: 215 28% 17%;
+
+        --radius: 0.75rem;
+
+        /* ── Module Accent Tokens ────────────────────────── */
+        --finance:    199 89% 48%;   /* Sky-500    #0ea5e9 */
+        --projects:   239 84% 67%;   /* Indigo-500 #6366f1 */
+        --hr:         347 77% 50%;   /* Rose-500   #f43f5e */
+        --supervision: 142 71% 45%;  /* Emerald-500 #22c55e */
+    }
+
+    .dark {
+        --background: 222 47% 11%;
+        /* Deep Navy Background */
+        --foreground: 210 40% 98%;
+
+        --card: 217 33% 17%;
+        /* Charcoal Card */
+        --card-foreground: 210 40% 98%;
+
+        --popover: 222 47% 11%;
+        --popover-foreground: 210 40% 98%;
+
+        --primary: 45 93% 47%;
+        /* Gold as Primary in Dark Mode */
+        --primary-foreground: 222 47% 11%;
+
+        --secondary: 217 33% 17%;
+        --secondary-foreground: 210 40% 98%;
+
+        --muted: 217 33% 17%;
+        --muted-foreground: 215 20% 65%;
+
+        --accent: 45 93% 47%;
+        --accent-foreground: 222 47% 11%;
+
+        --destructive: 0 62.8% 30.6%;
+        --destructive-foreground: 210 40% 98%;
+
+        --border: 217 33% 17%;
+        --input: 217 33% 17%;
+        --ring: 45 93% 47%;
+    }
+}
+
+@layer base {
+    * {
+        @apply border-border;
+    }
+
+    body {
+        @apply bg-background text-foreground;
+    }
+}

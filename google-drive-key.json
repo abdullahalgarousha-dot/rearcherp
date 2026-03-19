@@ -1,0 +1,13 @@
+{
+    "type": "service_account",
+    "project_id": "sud-erp-system",
+    "private_key_id": "387f4c7a7bdc412025a85977a50d47d4a4c76b41",
+    "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCy4dJr/c63vyiy\nDYgTAmoqfl8gFJvvL4adsvGXb18Pm1gT+q9zc8nNxPwJ5BjG3JlEeBsP0lvPe0KN\nbyash9rAX1oGV4vnNdUWwbFkq0NLoww5CjnbaNZkzirixiaf1FQMfp6wXJ8GSHgQ\n7wYVhEVkOAROreRn3h+6AoYQH1fppgj4002N/TopZTNlOpFZCMliH3Ely3B6b4T3\npDQVRGTgyFDEVINfKOFFTsb1X8u1Dmg5nhTyVU3YQdUdn+lHRMRkTIJC1c9diaxi\nHKrRXfuG21bVvihFaG4NWOZ4lvgYPOoJuW2LZQ5dBv2LmkucqZHTJBlWbzGNmyWL\nRrOffBUhAgMBAAECggEAANqH6nWBvTthvucsN5CKVmDSfDKJCOxeaxEEpVFgu98Q\nuOnSmApcedAJMyGmoSN9xTPUBRFiaA0kXCfyKS8s+fL72pQgeEnEEqyOiwrGwmNj\n6wq5fDC7OL96DSz6HiP54IoEbA2YRvQ9usS2D5BgR9JhIfOB+u6VKYhm0wI6Z+CU\n42okDfr8SBJevRuyjXTsvDzB2q746JO6kNeFJECogjWqzDfOR2JCG6NFkPPXopN1\n7Dxp0EaXbnNUpI6rLLkt0YX8/4gNhTmnVhokukqdwavuSlOSOxmrURjK0BaeY9LH\nkZKIOA9N7YmNyWNdFeFWe2BlH9Tiwmpv8JzWkSPCUwKBgQDtNRoIOESTUkC3ZjYW\n/49c7wVluXoyaL7ntAiEHMd3qyFV5GZAGAAupPY6nk6+92iZM1JnDLtd5XBDKklA\nvAdGAn+NnsnNEbSlROiXvOlnG8B332z5Hwjq0lakBbHLo3KITv09RCYy0xX+5Mqm\nYSVb9q1pmH9EIUkaGrwMqJ2aGwKBgQDBDc0o9MvdK9yzueEmBMuCOi9HtU+HsWW9\nZiQyllGdh/giV+phTBFnWqG8tBp5vhz6ABVJ+UvXq+ONaUlA/Wnp5q6shN3Rsgl1\nzr1a8++wIZ+tEnOwulmFFN+mxkrZYCMy/b79I4YjUHYZCHGSk4A8bi1hXLNNZric\nbblKrp1BcwKBgQCufV5t535CZMIoZu6pEksSUN1GjB7gj/7GkL+m90iftenqtf2l\nbkJMDZr3WdaRUYvHDmKyXUJC+vEO5z9FeEtda58KvWCzEjAxVrRGUnfbGiYFx/vw\ncazsl9eWBn5YTx6EOJ6+f7AduPs4KnML2vBRau77e2s64cVVh48HPM3aOwKBgAN/\n4Iwxg9CKjwGjCPXLeHTv4ROHsd1f1dxNEbLpDqmwYUseFN2Wp2ocNnpZOXGjhJrz\njW892aYbM5DIq89FyLm4uMnfzrWSaKF+EeioK1wh/+b/QqGdfynuau93ALxYBctS\n1jd4gWH6f2mMwaJKkjSGOsRdDdMFXatYQdecurUJAoGAF7uYArvFqyGLoBwPPyn1\nFTgDcrxB+vUdpxvcTG2VipppWmKd2WATTbNG7I8dKWmnlNZfZDWPnd4+1DxYGP30\nyW0GIiOTvTdV5PlKq26rapgC7Xj5TrLj15Fi4WbQB5ITd/+WocNMmfgL8Xx/ZlZf\ncZ0xgi07dU4GkXkXY5mo+LQ=\n-----END PRIVATE KEY-----\n",
+    "client_email": "fts-drive-bot@sud-erp-system.iam.gserviceaccount.com",
+    "client_id": "106617443625195742665",
+    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+    "token_uri": "https://oauth2.googleapis.com/token",
+    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+    "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/fts-drive-bot%40sud-erp-system.iam.gserviceaccount.com",
+    "universe_domain": "googleapis.com"
+}
