@@ -1,65 +1,70 @@
 import { PrismaClient } from "@prisma/client"
+import { getTenantContext } from "./tenant-context"
 
-// Generate standard generic client
 const prismaClientSingleton = () => {
-    return new PrismaClient({
-        // log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
-    })
+    return new PrismaClient()
 }
 
 declare global {
     var prisma: undefined | ReturnType<typeof prismaClientSingleton>
+    var db: undefined | any
 }
 
-// Instantiate base client
+// Singleton base client
 const baseClient = globalThis.prisma ?? prismaClientSingleton()
+if (process.env.NODE_ENV !== "production") globalThis.prisma = baseClient
 
-import { getTenantContext } from "./tenant-context"
-
-// Apply Prisma Client Extension for Row-Level Security (RLS) & Automatic Tenant Isolation
-export const db = baseClient.$extends({
+// Singleton extended client (with tenant isolation extension)
+const buildDb = () => baseClient.$extends({
     query: {
         $allModels: {
             async $allOperations({ model, operation, args, query }) {
-                const tenantId = getTenantContext();
+                const tenantId = getTenantContext()
 
-                // 1. PostgreSQL RLS (Session Variable)
+                // PostgreSQL RLS session variable
                 if (tenantId) {
                     try {
-                        await baseClient.$executeRawUnsafe(`SET LOCAL app.current_tenant_id = '${tenantId}'`);
-                    } catch (e) {
-                        // Silent skip for non-postgres drivers (though we are strictly PostgreSQL now)
+                        await baseClient.$executeRawUnsafe(
+                            `SET LOCAL app.current_tenant_id = '${tenantId}'`
+                        )
+                    } catch {
+                        // silent — non-postgres drivers
                     }
                 }
 
-                // 2. Isolation Shield: Automatic tenantId Injection
-                // Skip for internal models or models without tenantId (Tenant, SystemSettings, etc.)
-                const bypassModels = ['Tenant', 'SystemSettings', 'CompanyProfile', 'SystemLookup', 'LoginAttempt', 'SystemLog'];
+                // Automatic tenantId injection — skip global/system models
+                const bypassModels = [
+                    "Tenant", "SystemSettings", "CompanyProfile",
+                    "SystemLookup", "LoginAttempt", "SystemLog",
+                ]
                 if (tenantId && !bypassModels.includes(model)) {
-                    // Inject into 'where' for read/update/delete
-                    if (['findMany', 'findFirst', 'findUnique', 'count', 'update', 'updateMany', 'delete', 'deleteMany'].includes(operation)) {
-                        (args as any).where = { ...(args as any).where, tenantId };
+                    if (
+                        ["findMany", "findFirst", "findUnique", "count",
+                         "update", "updateMany", "delete", "deleteMany"].includes(operation)
+                    ) {
+                        ;(args as any).where = { ...(args as any).where, tenantId }
                     }
-                    // Inject into 'data' for create
-                    if (['create', 'createMany', 'upsert'].includes(operation)) {
-                        if (operation === 'upsert') {
-                            (args as any).create = { ...(args as any).create, tenantId };
-                            (args as any).update = { ...(args as any).update, tenantId };
-                        } else if (operation === 'createMany') {
+                    if (["create", "createMany", "upsert"].includes(operation)) {
+                        if (operation === "upsert") {
+                            ;(args as any).create = { ...(args as any).create, tenantId }
+                            ;(args as any).update = { ...(args as any).update, tenantId }
+                        } else if (operation === "createMany") {
                             if (Array.isArray((args as any).data)) {
-                                (args as any).data = (args as any).data.map((item: any) => ({ ...item, tenantId }));
+                                ;(args as any).data = (args as any).data.map(
+                                    (item: any) => ({ ...item, tenantId })
+                                )
                             }
                         } else {
-                            (args as any).data = { ...(args as any).data, tenantId };
+                            ;(args as any).data = { ...(args as any).data, tenantId }
                         }
                     }
                 }
 
                 return query(args)
-            }
-        }
-    }
+            },
+        },
+    },
 })
 
-
-if (process.env.NODE_ENV !== "production") globalThis.prisma = baseClient
+export const db: ReturnType<typeof buildDb> =
+    globalThis.db ?? (globalThis.db = buildDb())
