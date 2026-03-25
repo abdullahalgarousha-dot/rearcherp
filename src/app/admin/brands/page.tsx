@@ -14,6 +14,22 @@ export default async function BrandsCRUDPage() {
         redirect('/dashboard')
     }
 
+    // If super admin is accessing this page directly (tenantId="system"), they
+    // don't have a real tenant — show a helpful redirect hint instead.
+    if (!tenantId || tenantId === 'system') {
+        return (
+            <div className="flex items-center justify-center min-h-[60vh]">
+                <div className="text-center space-y-3 max-w-sm">
+                    <p className="text-2xl font-black text-slate-800">No Tenant Context</p>
+                    <p className="text-slate-500 text-sm">
+                        You are logged in as the Global Super Admin. To manage brands, log in as a
+                        tenant admin via the Super Admin dashboard.
+                    </p>
+                </div>
+            </div>
+        )
+    }
+
     // Fetch all brands for this tenant
     const brands = await db.brand.findMany({
         where: { tenantId },
