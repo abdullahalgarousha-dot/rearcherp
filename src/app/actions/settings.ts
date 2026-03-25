@@ -14,7 +14,9 @@ export async function getSystemSettings() {
 
         let profile: any = null
 
-        if (tenantId) {
+        // "system" is the virtual tenantId used by the Super Admin emergency
+        // bypass — no real Tenant row exists for it, so skip DB entirely.
+        if (tenantId && tenantId !== "system") {
             // Tenant-scoped lookup — each tenant has their own CompanyProfile
             profile = await (db as any).companyProfile.findFirst({
                 where: { tenantId }

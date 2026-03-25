@@ -80,39 +80,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             },
         }),
     ],
-    events: {
-        async signIn(message: any) {
-            try {
-                if (message.user?.id) {
-                    await (prisma as any).systemLog.create({
-                        data: {
-                            userId: message.user.id,
-                            action: "LOGIN",
-                            details: JSON.stringify({
-                                provider: message.account?.provider || "credentials"
-                            })
-                        }
-                    })
-                }
-            } catch (e) {
-                console.error("Failed to log sign-in event:", e)
-            }
-        },
-        async signOut(message: any) {
-            try {
-                const userId = message?.token?.sub
-                if (userId) {
-                    await (prisma as any).systemLog.create({
-                        data: {
-                            userId,
-                            action: "LOGOUT",
-                            details: JSON.stringify({ source: "NextAuth" })
-                        }
-                    })
-                }
-            } catch (e) {
-                console.error("Failed to log sign-out event:", e)
-            }
-        }
-    },
+    // events removed: SystemLog schema has no 'details' field, causing
+    // PrismaClientValidationError on every login/logout. Logging can be
+    // re-added once the schema field is aligned.
 })
