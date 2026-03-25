@@ -1,4 +1,5 @@
 export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
 import { Suspense } from "react"
 import { Loader2 } from "lucide-react"

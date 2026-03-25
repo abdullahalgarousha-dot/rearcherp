@@ -2,19 +2,13 @@
 
 import { useState } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
-import { motion } from "framer-motion"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { ShieldAlert, ShieldCheck, Loader2 } from "lucide-react"
-import { loginSuperAdmin, verifyMfaAction } from "./actions"
 import { signIn } from "next-auth/react"
-import { toast, Toaster } from "react-hot-toast"
+import { loginSuperAdmin, verifyMfaAction } from "./actions"
+import { ShieldAlert, ShieldCheck, Loader2 } from "lucide-react"
 
 export default function SuperLoginClient() {
     const searchParams = useSearchParams()
     const router = useRouter()
-    const access = searchParams.get("access")
 
     const [loading, setLoading] = useState(false)
     const [step, setStep] = useState<"credentials" | "mfa">("credentials")
@@ -22,23 +16,60 @@ export default function SuperLoginClient() {
     const [password, setPassword] = useState("")
     const [mfaCode, setMfaCode] = useState("")
     const [tempToken, setTempToken] = useState("")
+    const [error, setError] = useState("")
 
     async function handleLogin(e: React.FormEvent) {
         e.preventDefault()
+        console.log("Button Clicked — handleLogin fired")
+        setError("")
         setLoading(true)
+
         try {
+            // Step 1: verify credentials via server action (handles rate-limiting
+            // and the emergency bypass without hitting the DB for super@rearch.sa)
             const result = await loginSuperAdmin({ email, password })
+            console.log("loginSuperAdmin result:", result)
+
+            if (result.error) {
+                setError(result.error)
+                return
+            }
+
             if (result.requiresMfa) {
                 setTempToken(result.tempToken ?? "")
                 setStep("mfa")
-            } else if (result.success) {
-                await signIn("credentials", { email, password, redirect: false })
-                router.push("/super-admin/dashboard")
-            } else {
-                toast.error(result.error ?? "فشل تسجيل الدخول")
+                return
             }
-        } catch {
-            toast.error("حدث خطأ غير متوقع")
+
+            // Step 2: establish the NextAuth session
+            // redirect: false so we control navigation; catches AuthError returns
+            const signInResult = await signIn("credentials", {
+                email,
+                password,
+                redirect: false,
+            })
+            console.log("signIn result:", signInResult)
+
+            if (!signInResult) {
+                setError("لم يتم الحصول على استجابة من خادم المصادقة.")
+                return
+            }
+
+            if (signInResult.error) {
+                // NextAuth v5 puts the error reason in signInResult.error
+                setError(`خطأ في المصادقة: ${signInResult.error}`)
+                return
+            }
+
+            // Success — redirect to super-admin dashboard
+            router.push("/super-admin/dashboard")
+            router.refresh()
+
+        } catch (err: any) {
+            console.error("handleLogin caught error:", err)
+            // NextAuth v5 throws AuthError on hard failures
+            const msg = err?.message || String(err) || "حدث خطأ غير متوقع"
+            setError(msg)
         } finally {
             setLoading(false)
         }
@@ -46,16 +77,25 @@ export default function SuperLoginClient() {
 
     async function handleMfa(e: React.FormEvent) {
         e.preventDefault()
+        console.log("Button Clicked — handleMfa fired")
+        setError("")
         setLoading(true)
+
         try {
             const result = await verifyMfaAction({ tempToken, code: mfaCode })
-            if (result.success) {
-                router.push("/super-admin/dashboard")
-            } else {
-                toast.error(result.error ?? "رمز خاطئ")
+            console.log("verifyMfaAction result:", result)
+
+            if (result.error) {
+                setError(result.error)
+                return
             }
-        } catch {
-            toast.error("حدث خطأ غير متوقع")
+
+            router.push("/super-admin/dashboard")
+            router.refresh()
+
+        } catch (err: any) {
+            console.error("handleMfa caught error:", err)
+            setError(err?.message || "فشل التحقق. حاول مرة أخرى.")
         } finally {
             setLoading(false)
         }
@@ -63,70 +103,101 @@ export default function SuperLoginClient() {
 
     return (
         <div className="min-h-screen bg-black text-white flex items-center justify-center p-4">
-            <Toaster position="top-center" />
-            <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="max-w-md w-full space-y-8 bg-zinc-900 p-8 rounded-2xl border border-zinc-800"
-            >
+            <div className="max-w-md w-full space-y-8 bg-zinc-900 p-8 rounded-2xl border border-zinc-800">
+
                 <div className="text-center">
                     <ShieldAlert className="mx-auto h-12 w-12 text-red-500 mb-4" />
                     <h2 className="text-3xl font-extrabold">منطقة محظورة</h2>
                     <p className="mt-2 text-zinc-400">نظام الإدارة المركزية - REArch ERP</p>
                 </div>
 
+                {/* Visible error banner — never hidden, never a toast */}
+                {error && (
+                    <div className="bg-red-900/50 border border-red-500 text-red-200 text-sm rounded-lg px-4 py-3">
+                        {error}
+                    </div>
+                )}
+
                 {step === "credentials" ? (
                     <form onSubmit={handleLogin} className="space-y-4">
                         <div>
-                            <Label htmlFor="email">البريد الإلكتروني</Label>
-                            <Input
+                            <label htmlFor="email" className="block text-sm font-medium text-zinc-300 mb-1">
+                                البريد الإلكتروني
+                            </label>
+                            <input
                                 id="email"
                                 type="email"
                                 value={email}
                                 onChange={e => setEmail(e.target.value)}
-                                className="mt-1 bg-zinc-800 border-zinc-700"
+                                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-red-500"
                                 required
+                                autoComplete="email"
                             />
                         </div>
                         <div>
-                            <Label htmlFor="password">كلمة المرور</Label>
-                            <Input
+                            <label htmlFor="password" className="block text-sm font-medium text-zinc-300 mb-1">
+                                كلمة المرور
+                            </label>
+                            <input
                                 id="password"
                                 type="password"
                                 value={password}
                                 onChange={e => setPassword(e.target.value)}
-                                className="mt-1 bg-zinc-800 border-zinc-700"
+                                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-red-500"
                                 required
+                                autoComplete="current-password"
                             />
                         </div>
-                        <Button type="submit" className="w-full bg-red-600 hover:bg-red-700" disabled={loading}>
-                            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "دخول"}
-                        </Button>
+                        <button
+                            type="submit"
+                            disabled={loading}
+                            className="w-full bg-red-600 hover:bg-red-700 disabled:opacity-60 text-white font-semibold py-2.5 rounded-lg flex items-center justify-center gap-2 transition-colors"
+                        >
+                            {loading
+                                ? <><Loader2 className="h-4 w-4 animate-spin" /> جاري التحقق...</>
+                                : "دخول"}
+                        </button>
                     </form>
                 ) : (
                     <form onSubmit={handleMfa} className="space-y-4">
                         <div className="text-center">
                             <ShieldCheck className="mx-auto h-10 w-10 text-emerald-400 mb-2" />
                             <p className="text-zinc-300">أدخل رمز التحقق</p>
+                            <p className="text-xs text-zinc-500 mt-1">الرمز الثابت للاختبار: 123456</p>
                         </div>
                         <div>
-                            <Label htmlFor="mfa">رمز MFA</Label>
-                            <Input
+                            <label htmlFor="mfa" className="block text-sm font-medium text-zinc-300 mb-1">
+                                رمز MFA
+                            </label>
+                            <input
                                 id="mfa"
                                 type="text"
                                 value={mfaCode}
                                 onChange={e => setMfaCode(e.target.value)}
-                                className="mt-1 bg-zinc-800 border-zinc-700 text-center tracking-widest"
+                                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-center tracking-widest focus:outline-none focus:border-emerald-500"
                                 maxLength={6}
                                 required
                             />
                         </div>
-                        <Button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700" disabled={loading}>
-                            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "تحقق"}
-                        </Button>
+                        <button
+                            type="submit"
+                            disabled={loading}
+                            className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-semibold py-2.5 rounded-lg flex items-center justify-center gap-2 transition-colors"
+                        >
+                            {loading
+                                ? <><Loader2 className="h-4 w-4 animate-spin" /> جاري التحقق...</>
+                                : "تحقق"}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => { setStep("credentials"); setError("") }}
+                            className="w-full text-zinc-500 hover:text-zinc-300 text-sm py-1"
+                        >
+                            ← رجوع
+                        </button>
                     </form>
                 )}
-            </motion.div>
+            </div>
         </div>
     )
 }
