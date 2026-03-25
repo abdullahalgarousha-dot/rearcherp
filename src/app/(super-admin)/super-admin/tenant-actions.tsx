@@ -19,6 +19,7 @@ import { toast } from "sonner"
 import { useRouter } from "next/navigation"
 import { CustomDomainDialog } from "./custom-domain-dialog"
 import { EditTenantDialog } from "./edit-tenant-dialog"
+import { buildTenantUrl } from "@/lib/tenant-url"
 
 interface TenantActionsProps {
     tenant: {
@@ -66,8 +67,7 @@ export function TenantActions({ tenant, plans }: TenantActionsProps) {
     const handleImpersonate = async () => {
         setLoading(true)
         await logImpersonation(tenant.id, tenant.slug)
-        const port = window.location.port ? `:${window.location.port}` : ""
-        window.open(`http://${tenant.slug}.localhost${port}/dashboard`, '_blank')
+        window.open(buildTenantUrl(tenant.slug, "/dashboard"), "_blank")
         setLoading(false)
     }
 

@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/select"
 import { onboardTenant } from "./actions"
 import { toast } from "sonner"
+import { buildTenantUrl } from "@/lib/tenant-url"
 
 export function OnboardTenantDialog({ plans }: { plans: any[] }) {
     const [open, setOpen] = useState(false)
@@ -52,11 +53,10 @@ export function OnboardTenantDialog({ plans }: { plans: any[] }) {
         startTransition(async () => {
             const result = await onboardTenant(data)
             if (result.success) {
-                const port = window.location.port ? `:${window.location.port}` : ""
                 setOnboardedData({
                     ...data,
                     password: result.tempPassword,
-                    url: `http://${data.slug}.localhost${port}/login`,
+                    url: buildTenantUrl(data.slug, "/login"),
                 })
                 toast.success("Tenant onboarded successfully!")
             } else {
