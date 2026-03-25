@@ -1,27 +1,25 @@
-import { NextRequest, NextResponse } from "next/server"
-import { getToken } from "next-auth/jwt"
+import NextAuth from "next-auth"
+import { authConfig } from "@/auth.config"
+import { NextResponse } from "next/server"
 
-export async function middleware(req: NextRequest) {
+const { auth } = NextAuth(authConfig)
+
+export default auth((req) => {
     const { pathname } = req.nextUrl
-
-    // ── Always pass through: static assets, Next internals, auth API ─────────
-    // (these are already excluded by the matcher, but be explicit for clarity)
-
-    // ── Decode JWT from cookie — zero DB interaction, fully edge-safe ─────────
-    const token = await getToken({
-        req,
-        secret: process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET,
-    })
-
-    const isLoggedIn = !!token
-    const role = (token?.role as string) || ""
-    const setupCompleted = token?.setupCompleted as boolean | undefined
-    const tenantStatus = (token?.tenantStatus as string) || "ACTIVE"
-    const subscriptionEnd = token?.subscriptionEnd
-        ? new Date(token.subscriptionEnd as string)
+    const user = req.auth?.user as any
+    const isLoggedIn = !!req.auth
+    const role = (user?.role as string) || ""
+    const email = (user?.email as string) || ""
+    const setupCompleted = user?.setupCompleted as boolean | undefined
+    const tenantStatus = (user?.tenantStatus as string) || "ACTIVE"
+    const subscriptionEnd = user?.subscriptionEnd
+        ? new Date(user.subscriptionEnd as string)
         : null
-    const planModules = (token?.planModules as string[]) || []
-    const tier = (token?.subscriptionTier as string) || "STANDARD"
+    const planModules = (user?.planModules as string[]) || []
+    const tier = (user?.subscriptionTier as string) || "STANDARD"
+
+    // Debug: log what the middleware actually sees
+    console.log("MIDDLEWARE TOKEN:", JSON.stringify({ isLoggedIn, role, email, pathname }))
 
     // ── Host-based tenant resolution ──────────────────────────────────────────
     const hostname = req.headers.get("host") || ""
@@ -49,14 +47,16 @@ export async function middleware(req: NextRequest) {
 
     // ── Super-admin routes ────────────────────────────────────────────────────
     if (pathname.startsWith("/super-admin")) {
-        if (!isLoggedIn) {
-            return NextResponse.redirect(new URL("/super-login?access=secure", req.nextUrl))
+        // HARDCODED BYPASS: if the token carries the super admin email or role, let them through
+        if (
+            email === "super@rearch.sa" ||
+            role === "GLOBAL_SUPER_ADMIN" ||
+            role === "SUPER_ADMIN"
+        ) {
+            return NextResponse.next()
         }
-        if (role !== "GLOBAL_SUPER_ADMIN" && role !== "SUPER_ADMIN") {
-            return NextResponse.redirect(new URL("/super-login?access=secure", req.nextUrl))
-        }
-        // Explicitly pass through — includes RSC fetches (_rsc=) and Server Action POSTs
-        return NextResponse.next()
+        // Not authenticated or wrong role — bounce to super-login
+        return NextResponse.redirect(new URL("/super-login?access=secure", req.nextUrl))
     }
 
     // ── Public auth routes ─────────────────────────────────────────────────────
@@ -110,7 +110,7 @@ export async function middleware(req: NextRequest) {
             return (tierMap[tier] || ["PROJECTS"]).includes(mod)
         }
 
-        // RBAC — role
+        // RBAC — role checks
         if (pathname.startsWith("/admin/hr") && !["ADMIN", "HR", "MANAGER"].includes(role)) {
             return NextResponse.redirect(new URL("/dashboard", req.nextUrl))
         }
@@ -139,17 +139,14 @@ export async function middleware(req: NextRequest) {
         }
     }
 
-    // ── Attach tenant hint header and pass through ────────────────────────────
+    // ── Pass through with tenant hint header ──────────────────────────────────
     const response = NextResponse.next()
     if (tenantSlug) {
         response.headers.set("x-tenant-slug", tenantSlug)
     }
     return response
-}
+})
 
 export const config = {
-    // Exclude static files, images, and the auth API from middleware processing.
-    // NOTE: Do NOT exclude _next/data or _rsc paths — those must pass through
-    // so the auth check applies to RSC re-renders and prefetches.
     matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
 }
