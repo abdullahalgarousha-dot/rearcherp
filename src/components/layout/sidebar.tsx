@@ -13,7 +13,7 @@ const sidebarItems = [
     { name: "Projects", href: "/admin/projects", icon: Briefcase },
     { name: "Brands", href: "/admin/brands", icon: Building2 },
     { name: "Users", href: "/admin/users", icon: Users },
-    { name: "Settings", href: "/settings", icon: Settings },
+    { name: "Settings", href: "/admin/settings/general", icon: Settings },
 ]
 
 interface SidebarProps {

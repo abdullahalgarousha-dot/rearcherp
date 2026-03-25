@@ -111,31 +111,35 @@ export default auth((req) => {
         }
 
         // RBAC — role checks
-        if (pathname.startsWith("/admin/hr") && !["ADMIN", "HR", "MANAGER"].includes(role)) {
+        const isSuperRole = role === "GLOBAL_SUPER_ADMIN" || role === "SUPER_ADMIN"
+        if (pathname.startsWith("/admin/hr") && !["ADMIN", "HR", "MANAGER"].includes(role) && !isSuperRole) {
             return NextResponse.redirect(new URL("/dashboard", req.nextUrl))
         }
-        if (pathname.startsWith("/admin/finance") && !["ADMIN", "FINANCE", "ACCOUNTANT", "CEO"].includes(role)) {
+        if (pathname.startsWith("/admin/finance") && !["ADMIN", "FINANCE", "ACCOUNTANT", "CEO"].includes(role) && !isSuperRole) {
             return NextResponse.redirect(new URL("/dashboard", req.nextUrl))
         }
-        if (pathname.startsWith("/admin/settings") && role !== "ADMIN") {
+        if (pathname.startsWith("/admin/settings") && role !== "ADMIN" && !isSuperRole) {
             return NextResponse.redirect(new URL("/dashboard", req.nextUrl))
         }
 
-        // RBAC — module gates
-        if (pathname.startsWith("/admin/hr") && !checkModule("HR")) {
-            return NextResponse.redirect(new URL("/dashboard?error=upgrade", req.nextUrl))
-        }
-        if (pathname.startsWith("/admin/finance")) {
-            if (!checkModule("FINANCE"))
+        // RBAC — module gates (ADMIN and super roles bypass these)
+        const bypassModuleGates = role === "ADMIN" || isSuperRole
+        if (!bypassModuleGates) {
+            if (pathname.startsWith("/admin/hr") && !checkModule("HR")) {
                 return NextResponse.redirect(new URL("/dashboard?error=upgrade", req.nextUrl))
-            if (pathname.includes("/zatca") && !checkModule("ZATCA"))
+            }
+            if (pathname.startsWith("/admin/finance")) {
+                if (!checkModule("FINANCE"))
+                    return NextResponse.redirect(new URL("/dashboard?error=upgrade", req.nextUrl))
+                if (pathname.includes("/zatca") && !checkModule("ZATCA"))
+                    return NextResponse.redirect(new URL("/dashboard?error=upgrade", req.nextUrl))
+            }
+            if (pathname.includes("/gantt") && !checkModule("GANTT")) {
                 return NextResponse.redirect(new URL("/dashboard?error=upgrade", req.nextUrl))
-        }
-        if (pathname.includes("/gantt") && !checkModule("GANTT")) {
-            return NextResponse.redirect(new URL("/dashboard?error=upgrade", req.nextUrl))
-        }
-        if (pathname.startsWith("/admin/crm") && !checkModule("CRM")) {
-            return NextResponse.redirect(new URL("/dashboard?error=upgrade", req.nextUrl))
+            }
+            if (pathname.startsWith("/admin/crm") && !checkModule("CRM")) {
+                return NextResponse.redirect(new URL("/dashboard?error=upgrade", req.nextUrl))
+            }
         }
     }
 

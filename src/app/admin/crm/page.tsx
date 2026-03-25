@@ -13,7 +13,7 @@ export default async function ClientsDirectoryPage() {
     const user = session?.user as any
     if (!user) return redirect('/login')
 
-    const isAdmin = ['ADMIN', 'SUPER_ADMIN', 'ACCOUNTANT'].includes(user.role)
+    const isAdmin = ['ADMIN', 'SUPER_ADMIN', 'GLOBAL_SUPER_ADMIN', 'ACCOUNTANT'].includes(user.role)
 
     // Build the query
     // - Admin/Accountant sees all clients
@@ -64,7 +64,8 @@ export default async function ClientsDirectoryPage() {
             {clients.length === 0 ? (
                 <div className="text-center py-20 bg-white rounded-3xl border border-dashed text-muted-foreground">
                     <UserSquare2 className="w-12 h-12 mx-auto mb-4 opacity-20" />
-                    <p>No clients found matching your access level.</p>
+                    <p className="font-medium">No clients yet.</p>
+                    <p className="text-sm mt-1">Create your first client to get started.</p>
                 </div>
             ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">

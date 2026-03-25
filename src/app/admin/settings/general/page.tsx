@@ -5,6 +5,7 @@ import { getSystemSettings, getSystemLookups } from "@/app/actions/settings"
 import { getBranches } from "@/app/actions/branches"
 import { SettingsClient } from "./settings-client"
 import { BackButton } from "@/components/ui/back-button"
+import { DangerZone } from "./danger-zone"
 
 export default async function MasterSettingsPage() {
     const session = await auth()
@@ -34,6 +35,7 @@ export default async function MasterSettingsPage() {
             </div>
 
             <SettingsClient initialSettings={settings} lookups={lookups} branches={branches} />
+            <DangerZone />
         </div>
     )
 }
