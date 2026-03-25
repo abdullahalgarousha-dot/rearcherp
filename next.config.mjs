@@ -3,39 +3,31 @@ const nextConfig = {
     experimental: {
         serverActions: {
             bodySizeLimit: '50mb',
+            // Allow server actions from the Vercel deployment domain and any
+            // subdomains (for multi-tenant subdomain routing).
+            // Without this, Next.js CSRF protection can block POSTs that come
+            // from a different Origin than the deployment URL.
+            allowedOrigins: [
+                'localhost:3000',
+                '*.vercel.app',
+                '*.rearch.sa',
+            ],
         },
     },
-    // Don't fail the production build on ESLint warnings
     eslint: {
         ignoreDuringBuilds: true,
     },
-    // Don't fail the production build on TypeScript errors
-    // (remove once all type errors are fully resolved)
     typescript: {
         ignoreBuildErrors: true,
     },
     images: {
         remotePatterns: [
-            {
-                protocol: 'https',
-                hostname: 'drive.google.com',
-            },
-            {
-                protocol: 'https',
-                hostname: 'lh3.googleusercontent.com',
-            },
-            // Supabase Storage (current DB host)
-            {
-                protocol: 'https',
-                hostname: '*.supabase.co',
-            },
-            // Neon / generic S3-compatible object storage
-            {
-                protocol: 'https',
-                hostname: '*.amazonaws.com',
-            },
+            { protocol: 'https', hostname: 'drive.google.com' },
+            { protocol: 'https', hostname: 'lh3.googleusercontent.com' },
+            { protocol: 'https', hostname: '*.supabase.co' },
+            { protocol: 'https', hostname: '*.amazonaws.com' },
         ],
     },
-};
+}
 
-export default nextConfig;
+export default nextConfig

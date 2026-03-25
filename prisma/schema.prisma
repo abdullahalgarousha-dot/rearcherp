@@ -15,28 +15,28 @@ model SubscriptionPlan {
   price          Float    @default(0)
   currency       String   @default("SAR")
   allowedModules Json     @default("[]")
-  maxUsers       Int      @default(0)  // 0 = unlimited
+  maxUsers       Int      @default(0) // 0 = unlimited
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
   tenants        Tenant[]
 }
 
 model Tenant {
-  id                 String              @id @default(cuid())
-  slug               String              @unique
+  id                 String                  @id @default(cuid())
+  slug               String                  @unique
   name               String
-  status             String              @default("ACTIVE")
-  subscriptionTier   String              @default("STANDARD")
+  status             String                  @default("ACTIVE")
+  subscriptionTier   String                  @default("STANDARD")
   driveClientId      String?
   driveClientSecret  String?
   driveRefreshToken  String?
   driveRootFolderId  String?
   subscriptionStart  DateTime?
   subscriptionEnd    DateTime?
-  setupCompleted     Boolean             @default(false)
-  customDomain       String?             @unique
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
+  setupCompleted     Boolean                 @default(false)
+  customDomain       String?                 @unique
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
   planId             String?
   attendances        Attendance[]
   auditLogs          AuditLog[]
@@ -82,63 +82,76 @@ model Tenant {
   systemLookups      SystemLookup[]
   systemSettings     SystemSetting[]
   tasks              Task[]
-  plan               SubscriptionPlan?   @relation(fields: [planId], references: [id])
+  plan               SubscriptionPlan?       @relation(fields: [planId], references: [id])
   timeLogs           TimeLog[]
   users              User[]
   variationOrders    VariationOrder[]
+  teams              Team[]
+  employeeTasks      EmployeeTask[]
   vendors            Vendor[]
   vendorContracts    VendorContract[]
 }
 
 model User {
-  id                    String              @id @default(cuid())
-  tenantId              String              @default("t_undefined")
+  id                    String                  @id @default(cuid())
+  tenantId              String                  @default("t_undefined")
   name                  String?
-  email                 String              @unique
+  email                 String                  @unique
   emailVerified         DateTime?
   image                 String?
   password              String?
-  role                  String              @default("SITE_ENGINEER")
+  role                  String                  @default("SITE_ENGINEER")
   twoFactorSecret       String?
-  twoFactorEnabled      Boolean             @default(false)
+  twoFactorEnabled      Boolean                 @default(false)
   roleId                String?
   attendances           Attendance[]
-  approvedReports       DailyReport[]       @relation("ApprovedReports")
-  createdReports        DailyReport[]       @relation("CreatedReports")
+  approvedReports       DailyReport[]           @relation("ApprovedReports")
+  createdReports        DailyReport[]           @relation("CreatedReports")
   uploadedDesignFiles   DesignStageFile[]
-  approvedDrawings      DrawingRevision[]   @relation("DrawingApprovers")
+  approvedDrawings      DrawingRevision[]       @relation("DrawingApprovers")
   uploadedDrawings      DrawingRevision[]
   profile               EmployeeProfile?
   fileComments          FileComment[]
-  irResponses           IRRevision[]        @relation("RespondedIRRevisions")
-  irRevisions           IRRevision[]        @relation("CreatedIRRevisions")
-  notificationsReceived InAppNotification[] @relation("UserNotifications")
-  approvedIRs           InspectionRequest[] @relation("ApprovedIRs")
-  createdIRs            InspectionRequest[] @relation("CreatedIRs")
-  approvedLeaves        LeaveRequest[]      @relation("ApproverLeaves")
-  reviewedLeaves        LeaveRequest[]      @relation("ReviewerLeaves")
-  leaveRequests         LeaveRequest[]      @relation("UserLeaves")
-  approvedSubmittals    MaterialSubmittal[] @relation("ApprovedSubmittals")
-  approvedNCRs          NCR[]               @relation("ApprovedNCRs")
-  createdNCRs           NCR[]               @relation("CreatedNCRs")
-  ncrResponses          NCRRevision[]       @relation("RespondedNCRRevisions")
-  ncrRevisions          NCRRevision[]       @relation("CreatedNCRRevisions")
+  irResponses           IRRevision[]            @relation("RespondedIRRevisions")
+  irRevisions           IRRevision[]            @relation("CreatedIRRevisions")
+  notificationsReceived InAppNotification[]     @relation("UserNotifications")
+  approvedIRs           InspectionRequest[]     @relation("ApprovedIRs")
+  createdIRs            InspectionRequest[]     @relation("CreatedIRs")
+  approvedLeaves        LeaveRequest[]          @relation("ApproverLeaves")
+  reviewedLeaves        LeaveRequest[]          @relation("ReviewerLeaves")
+  leaveRequests         LeaveRequest[]          @relation("UserLeaves")
+  approvedSubmittals    MaterialSubmittal[]     @relation("ApprovedSubmittals")
+  approvedNCRs          NCR[]                   @relation("ApprovedNCRs")
+  createdNCRs           NCR[]                   @relation("CreatedNCRs")
+  ncrResponses          NCRRevision[]           @relation("RespondedNCRRevisions")
+  ncrRevisions          NCRRevision[]           @relation("CreatedNCRRevisions")
   notifications         Notification[]
-  pettyCashRequests     PettyCashRequest[]  @relation("CustodyRequester")
-  closedCustodies       PettyCashRequest[]  @relation("CustodyCloser")
+  pettyCashRequests     PettyCashRequest[]      @relation("CustodyRequester")
+  closedCustodies       PettyCashRequest[]      @relation("CustodyCloser")
   custodySettlements    CustodySettlementItem[]
-  leadProjects          Project[]           @relation("LeadEngineer")
+  leadProjects          Project[]               @relation("LeadEngineer")
   reportAttendances     ReportAttendee[]
   systemLogs            SystemLog[]
   timeLogs              TimeLog[]
-  userRole              Role?               @relation(fields: [roleId], references: [id])
-  tenant                Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userRole              Role?                   @relation(fields: [roleId], references: [id])
+  tenant                Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   approvedVOs           VariationOrder[]
-  paidMilestones        VendorMilestone[]   @relation("PaidMilestones")
+  paidMilestones        VendorMilestone[]       @relation("PaidMilestones")
   workLogs              WorkLog[]
-  assignedStages        DesignStage[]       @relation("DesignStageUsers")
-  projects              Project[]           @relation("ProjectEngineers")
-  assignedTasks         Task[]              @relation("TaskAssignees")
+  assignedStages        DesignStage[]           @relation("DesignStageUsers")
+  projects              Project[]               @relation("ProjectEngineers")
+  assignedTasks         Task[]                  @relation("TaskAssignees")
+
+  // Reporting line (direct manager within the User table)
+  managerId    String?
+  manager      User?   @relation("UserReportsTo", fields: [managerId], references: [id])
+  subordinates User[]  @relation("UserReportsTo")
+
+  // Productivity & Task module
+  teamMemberships       TeamMember[]
+  ledTeams              Team[]         @relation("TeamLeader")
+  assignedEmployeeTasks EmployeeTask[] @relation("EmployeeTaskAssignee")
+  createdEmployeeTasks  EmployeeTask[] @relation("EmployeeTaskCreator")
 }
 
 model EmployeeProfile {
@@ -284,7 +297,7 @@ model Brand {
   accentColor   String?   @default("#059669")
   taxNumber     String?
   crNumber      String?
-  abbreviation  String?   // Prefix for ID generation (e.g., 'FTS')
+  abbreviation  String? // Prefix for ID generation (e.g., 'FTS')
   isDefault     Boolean   @default(false)
   email         String?
   phone         String?
@@ -302,25 +315,25 @@ model Brand {
 }
 
 model Project {
-  id                    String              @id @default(cuid())
-  tenantId              String              @default("t_undefined")
-  code                  String              @unique
+  id                    String                  @id @default(cuid())
+  tenantId              String                  @default("t_undefined")
+  code                  String                  @unique
   name                  String
-  legacyClientName      String?             @map("client")
-  legacyClientAddr      String?             @map("clientAddress")
-  legacyClientVat       String?             @map("clientVat")
-  legacyClientBio       String?             @map("clientBio")
+  legacyClientName      String?                 @map("client")
+  legacyClientAddr      String?                 @map("clientAddress")
+  legacyClientVat       String?                 @map("clientVat")
+  legacyClientBio       String?                 @map("clientBio")
   contractValue         Float
   vatAmount             Float?
   clientId              String?
-  hasRetention          Boolean             @default(false)
-  retentionPercentage   Float               @default(0)
-  totalRetentionHeld    Float               @default(0)
-  originalContractValue Float               @default(0)
+  hasRetention          Boolean                 @default(false)
+  retentionPercentage   Float                   @default(0)
+  totalRetentionHeld    Float                   @default(0)
+  originalContractValue Float                   @default(0)
   startDate             DateTime?
   totalDuration         Int?
   contractDuration      Int?
-  completionPercent     Float               @default(0)
+  completionPercent     Float                   @default(0)
   brandId               String
   branchId              String?
   year                  Int
@@ -330,11 +343,11 @@ model Project {
   driveFolderId         String?
   driveLink             String?
   driveSubFolderIds     String?
-  serviceType           String              @default("DESIGN")
-  status                String              @default("ACTIVE")
-  autoArchiveToDrive    Boolean             @default(false)
-  createdAt             DateTime            @default(now())
-  updatedAt             DateTime            @updatedAt
+  serviceType           String                  @default("DESIGN")
+  status                String                  @default("ACTIVE")
+  autoArchiveToDrive    Boolean                 @default(false)
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
   dailyReports          DailyReport[]
   designStages          DesignStage[]
   drawings              Drawing[]
@@ -345,11 +358,11 @@ model Project {
   ncrs                  NCR[]
   pettyCashRequests     PettyCashRequest[]
   custodySettlements    CustodySettlementItem[]
-  branch                Branch?             @relation(fields: [branchId], references: [id])
-  brand                 Brand               @relation(fields: [brandId], references: [id])
-  client                Client?             @relation(fields: [clientId], references: [id])
-  leadEngineer          User?               @relation("LeadEngineer", fields: [leadEngineerId], references: [id])
-  tenant                Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch                Branch?                 @relation(fields: [branchId], references: [id])
+  brand                 Brand                   @relation(fields: [brandId], references: [id])
+  client                Client?                 @relation(fields: [clientId], references: [id])
+  leadEngineer          User?                   @relation("LeadEngineer", fields: [leadEngineerId], references: [id])
+  tenant                Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   projectContractors    ProjectContractor[]
   subContracts          SubContract[]
   tasks                 Task[]
@@ -357,7 +370,8 @@ model Project {
   variationOrders       VariationOrder[]
   vendorContracts       VendorContract[]
   workLogs              WorkLog[]
-  engineers             User[]              @relation("ProjectEngineers")
+  engineers             User[]                  @relation("ProjectEngineers")
+  employeeTasks         EmployeeTask[]
 }
 
 model ProjectContractor {
@@ -617,25 +631,26 @@ model SystemLog {
 }
 
 model DesignStage {
-  id           String            @id @default(cuid())
-  tenantId     String            @default("t_undefined")
-  projectId    String
-  name         String
-  order        Int               @default(0)
-  progress     Float             @default(0)
-  status       String            @default("PENDING")
-  description  String?
-  startDate    DateTime?
-  endDate      DateTime?
-  specialties  String?
-  requirements String?
-  createdAt    DateTime          @default(now())
-  updatedAt    DateTime          @updatedAt
-  project      Project           @relation(fields: [projectId], references: [id])
-  tenant       Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  files        DesignStageFile[]
-  tasks        Task[]
-  assignees    User[]            @relation("DesignStageUsers")
+  id            String            @id @default(cuid())
+  tenantId      String            @default("t_undefined")
+  projectId     String
+  name          String
+  order         Int               @default(0)
+  progress      Float             @default(0)
+  status        String            @default("PENDING")
+  description   String?
+  startDate     DateTime?
+  endDate       DateTime?
+  specialties   String?
+  requirements  String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  project       Project           @relation(fields: [projectId], references: [id])
+  tenant        Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  files         DesignStageFile[]
+  tasks         Task[]
+  assignees     User[]            @relation("DesignStageUsers")
+  employeeTasks EmployeeTask[]
 }
 
 model DesignStageFile {
@@ -925,39 +940,39 @@ model VariationOrder {
 }
 
 model PettyCashRequest {
-  id               String    @id @default(cuid())
-  tenantId         String    @default("t_undefined")
-  projectId        String
-  userId           String
-  amount           Float
-  reason           String
-  status           String    @default("REQUESTED")
+  id              String                  @id @default(cuid())
+  tenantId        String                  @default("t_undefined")
+  projectId       String
+  userId          String
+  amount          Float
+  reason          String
+  status          String                  @default("REQUESTED")
   // Legacy receipt (kept for backwards compatibility)
-  receiptUrl       String?
-  vatAmount        Float     @default(0)
+  receiptUrl      String?
+  vatAmount       Float                   @default(0)
   // Closure fields (set by accountant)
-  closedById       String?
-  closedAt         DateTime?
-  closedNotes      String?
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
-  project          Project   @relation(fields: [projectId], references: [id])
-  tenant           Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  user             User      @relation("CustodyRequester", fields: [userId], references: [id])
-  closedBy         User?     @relation("CustodyCloser", fields: [closedById], references: [id])
-  settlementItems  CustodySettlementItem[]
+  closedById      String?
+  closedAt        DateTime?
+  closedNotes     String?
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+  project         Project                 @relation(fields: [projectId], references: [id])
+  tenant          Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user            User                    @relation("CustodyRequester", fields: [userId], references: [id])
+  closedBy        User?                   @relation("CustodyCloser", fields: [closedById], references: [id])
+  settlementItems CustodySettlementItem[]
 }
 
 model CustodySettlementItem {
-  id              String   @id @default(cuid())
+  id              String           @id @default(cuid())
   requestId       String
-  tenantId        String   @default("t_undefined")
+  tenantId        String           @default("t_undefined")
   submittedById   String
   projectId       String?
   amount          Float
   invoicePhotoUrl String?
   description     String?
-  createdAt       DateTime @default(now())
+  createdAt       DateTime         @default(now())
   request         PettyCashRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
   submittedBy     User             @relation(fields: [submittedById], references: [id])
   project         Project?         @relation(fields: [projectId], references: [id])
@@ -1149,4 +1164,73 @@ model LoginAttempt {
   success   Boolean
   createdAt DateTime @default(now())
   tenant    Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PRODUCTIVITY & TASK MODULE
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Team {
+  id            String         @id @default(cuid())
+  tenantId      String         @default("t_undefined")
+  name          String
+  description   String?
+  leaderId      String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  leader        User?          @relation("TeamLeader", fields: [leaderId], references: [id])
+  members       TeamMember[]
+  employeeTasks EmployeeTask[]
+}
+
+model TeamMember {
+  id       String   @id @default(cuid())
+  teamId   String
+  userId   String
+  role     String   @default("MEMBER") // MEMBER | LEAD
+  joinedAt DateTime @default(now())
+  team     Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+}
+
+/// Individual productivity task — separate from the Gantt Task model.
+/// Links optionally to a Project and/or a DesignStage for traceability.
+model EmployeeTask {
+  id                   String    @id @default(cuid())
+  tenantId             String    @default("t_undefined")
+  title                String
+  description          String?
+  /// Who the task is assigned to (required)
+  assigneeId           String
+  /// Who created / assigned the task
+  assignedById         String?
+  /// Optional link to a Project
+  projectId            String?
+  /// Optional link to a Gantt DesignStage (for Gantt integration)
+  designStageId        String?
+  /// Optional link to a Team
+  teamId               String?
+  /// PENDING | IN_PROGRESS | COMPLETED | CANCELLED
+  status               String    @default("PENDING")
+  /// LOW | MEDIUM | HIGH | URGENT
+  priority             String    @default("MEDIUM")
+  plannedStartDate     DateTime?
+  plannedEndDate       DateTime?
+  /// Set when the task is completed — used for productivity calculation
+  actualCompletionDate DateTime?
+  estimatedHours       Float?
+  actualHours          Float?
+  notes                String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  assignee    User         @relation("EmployeeTaskAssignee", fields: [assigneeId], references: [id])
+  assignedBy  User?        @relation("EmployeeTaskCreator", fields: [assignedById], references: [id])
+  project     Project?     @relation(fields: [projectId], references: [id])
+  designStage DesignStage? @relation(fields: [designStageId], references: [id])
+  team        Team?        @relation(fields: [teamId], references: [id])
 }
