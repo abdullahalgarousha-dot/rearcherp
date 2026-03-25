@@ -14,10 +14,12 @@ export default async function ProjectsPage({ searchParams }: { searchParams: Pro
     // Basic access control
     if (!user) return redirect('/login')
 
+    const tenantId = user.tenantId as string
+
     const { brand, tab } = await searchParams
     const currentTab = tab || 'active'
 
-    const where: any = {}
+    const where: any = { tenantId }
     if (brand && brand !== 'all') {
         where.brandId = brand
     }
@@ -32,7 +34,7 @@ export default async function ProjectsPage({ searchParams }: { searchParams: Pro
     }
 
     const [brands, projectsData, allProjectsCount, activeProjectsCount, totalContractValue, globalNCRCount, globalIRCount] = await Promise.all([
-        db.brand.findMany(),
+        db.brand.findMany({ where: { tenantId } }),
         (db as any).project.findMany({
             where,
             include: {
@@ -43,13 +45,14 @@ export default async function ProjectsPage({ searchParams }: { searchParams: Pro
             },
             orderBy: { createdAt: 'desc' }
         }),
-        db.project.count(),
-        db.project.count({ where: { status: 'ACTIVE' } }),
+        db.project.count({ where: { tenantId } }),
+        db.project.count({ where: { tenantId, status: 'ACTIVE' } }),
         (db as any).project.aggregate({
+            where: { tenantId },
             _sum: { contractValue: true }
         }),
-        db.nCR.count(),
-        db.inspectionRequest.count()
+        db.nCR.count({ where: { tenantId } }),
+        db.inspectionRequest.count({ where: { tenantId } })
     ])
 
     // Serializer for handling Prisma Decimal/Date types

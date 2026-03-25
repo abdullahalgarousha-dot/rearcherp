@@ -131,27 +131,42 @@ export async function createClient(data: Partial<ClientDTO>) {
 
     if (!data.name || !data.name.trim()) throw new Error("Client name is required")
 
-    // Generate code
-    const count = await (db as any).client.count({ where: { tenantId } })
-    const code = `CLI-${1000 + count + 1}`
+    try {
+        // Generate code
+        const count = await (db as any).client.count({ where: { tenantId } })
+        const code = `CLI-${1000 + count + 1}`
 
-    const newClient = await (db as any).client.create({
-        data: {
-            tenantId,
-            clientCode: code,
-            name: data.name.trim(),
-            taxNumber: data.taxNumber || null,
-            phone: data.phone || null,
-            email: data.email || null,
-            address: data.address || null,
+        const newClient = await (db as any).client.create({
+            data: {
+                tenantId,
+                clientCode: code,
+                name: data.name.trim(),
+                taxNumber: data.taxNumber || null,
+                phone: data.phone || null,
+                email: data.email || null,
+                address: data.address || null,
+            }
+        })
+
+        // Fire Drive folder creation asynchronously (non-blocking)
+        triggerClientDriveFolders(tenantId, newClient.id, newClient.name)
+
+        revalidatePath("/admin/crm")
+        return newClient
+    } catch (e: any) {
+        // Surface a clear message instead of a raw Prisma stack trace
+        const msg: string = e?.message || ""
+        if (msg.includes("entityTypeId")) {
+            throw new Error(
+                "Database schema is being updated — please retry in a moment. " +
+                "(A one-time column migration is running on first server start.)"
+            )
         }
-    })
-
-    // Fire Drive folder creation asynchronously (non-blocking)
-    triggerClientDriveFolders(tenantId, newClient.id, newClient.name)
-
-    revalidatePath("/admin/crm")
-    return newClient
+        if (e?.code === "P2002") {
+            throw new Error("A client with this code already exists. Please try again.")
+        }
+        throw e
+    }
 }
 
 export async function deleteClient(clientId: string) {
