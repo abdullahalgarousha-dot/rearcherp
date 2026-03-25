@@ -41,8 +41,12 @@ export default function SuperLoginClient() {
                 return
             }
 
-            // Step 2: establish the NextAuth session
-            // redirect: false so we control navigation; catches AuthError returns
+            // Step 2: establish the NextAuth session.
+            // We use redirect: false to capture errors, then do a HARD redirect
+            // via window.location.href — this forces a full page reload so the
+            // browser picks up the new session cookie before navigating.
+            // router.push() is intentionally avoided here: it fires before the
+            // Set-Cookie response is fully applied, causing a silent no-op.
             const signInResult = await signIn("credentials", {
                 email,
                 password,
@@ -50,20 +54,14 @@ export default function SuperLoginClient() {
             })
             console.log("signIn result:", signInResult)
 
-            if (!signInResult) {
-                setError("لم يتم الحصول على استجابة من خادم المصادقة.")
-                return
-            }
-
-            if (signInResult.error) {
-                // NextAuth v5 puts the error reason in signInResult.error
+            if (signInResult?.error) {
                 setError(`خطأ في المصادقة: ${signInResult.error}`)
                 return
             }
 
-            // Success — redirect to super-admin dashboard
-            router.push("/super-admin/dashboard")
-            router.refresh()
+            // Hard redirect — guarantees the new session cookie is sent with
+            // the next request so the middleware lets the user through.
+            window.location.href = "/super-admin/dashboard"
 
         } catch (err: any) {
             console.error("handleLogin caught error:", err)
@@ -90,8 +88,7 @@ export default function SuperLoginClient() {
                 return
             }
 
-            router.push("/super-admin/dashboard")
-            router.refresh()
+            window.location.href = "/super-admin/dashboard"
 
         } catch (err: any) {
             console.error("handleMfa caught error:", err)
