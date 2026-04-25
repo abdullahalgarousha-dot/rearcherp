@@ -110,14 +110,18 @@ export async function submitCustodySettlement(
     }
 }
 
-// ─── ACCOUNTANT: Close custody after audit (NO auto expense injection) ────────
-// The accountant will manually create Expense entries from the archived invoices.
+// ─── ACCOUNTANT: Close custody — atomic: marks CLOSED + auto-creates Expense ──
+// The Expense is created inside the same $transaction as the status change so
+// the books are never inconsistent (closed custody with no expense record, or
+// an expense record with an unclosed custody).
 export async function closeCustody(requestId: string, notes?: string) {
     const session = await auth()
     const user = session?.user as any
+    const tenantId = user?.tenantId
     const isFinance = FINANCE_ROLES.includes(user?.role)
     const canApprove = await hasPermission('finance', 'canApproveFinance')
     if (!isFinance && !canApprove) return { error: "Unauthorized: Requires Finance permission" }
+    if (!tenantId) return { error: "Tenant context missing" }
 
     try {
         const request = await (db as any).pettyCashRequest.findUnique({
@@ -125,32 +129,59 @@ export async function closeCustody(requestId: string, notes?: string) {
             include: { settlementItems: true }
         })
         if (!request) return { error: "Custody record not found" }
+        if (request.tenantId !== tenantId) return { error: "Access denied" }
         if (request.status !== 'PENDING_REVIEW') {
             return { error: "Only custodies in PENDING_REVIEW can be closed" }
         }
 
-        await (db as any).pettyCashRequest.update({
-            where: { id: requestId },
-            data: {
-                status: 'CLOSED',
-                closedById: user.id,
-                closedAt: new Date(),
-                closedNotes: notes || null,
+        // Sum verified settlement items — this becomes the expense amount
+        const verifiedTotal = request.settlementItems.reduce(
+            (sum: number, item: any) => sum + (item.amount || 0), 0,
+        )
+
+        // Atomic: close the custody AND record the expense in one transaction
+        await (db as any).$transaction(async (tx: any) => {
+            // 1. Close the custody request
+            await tx.pettyCashRequest.update({
+                where: { id: requestId },
+                data: {
+                    status:      'CLOSED',
+                    closedById:  user.id,
+                    closedAt:    new Date(),
+                    closedNotes: notes || null,
+                },
+            })
+
+            // 2. Auto-create Expense from the verified settlement total
+            //    isTaxRecoverable = false — petty cash receipts are typically pre-tax consumer
+            if (verifiedTotal > 0) {
+                await tx.expense.create({
+                    data: {
+                        tenantId,
+                        projectId:       request.projectId || null,
+                        description:     `Petty Cash Settlement — ${request.reason}`,
+                        category:        'PETTY_CASH',
+                        amountBeforeTax: verifiedTotal,
+                        taxRate:         0,
+                        taxAmount:       0,
+                        totalAmount:     verifiedTotal,
+                        isTaxRecoverable: false,
+                        date:            new Date(),
+                    },
+                })
             }
         })
 
-        // Pillar 4: Non-blocking Drive archive — custody closure never fails due to Drive issues
-        const tenantId = user?.tenantId
-        if (tenantId) {
-            archiveCustodySettlementToDrive(
-                tenantId,
-                requestId,
-                request.projectId,
-                request.settlementItems
-            ).catch(err => console.error('[Drive] Background custody archive failed:', err))
-        }
+        // Non-blocking Drive archive — closure never fails due to Drive issues
+        archiveCustodySettlementToDrive(
+            tenantId,
+            requestId,
+            request.projectId,
+            request.settlementItems,
+        ).catch(err => console.error('[Drive] Background custody archive failed:', err))
 
         revalidatePath('/admin/hr/petty-cash')
+        revalidatePath('/admin/finance/expenses')
         return { success: true }
     } catch (e) {
         console.error("closeCustody error:", e)
@@ -209,10 +240,11 @@ export async function getAllPettyCashRequests() {
 export async function getMyCustodies() {
     const session = await auth()
     if (!session) return { custodies: [] }
-    const userId = (session.user as any).id
+    const userId   = (session.user as any).id
+    const tenantId = (session.user as any).tenantId
 
     const custodies = await (db as any).pettyCashRequest.findMany({
-        where: { userId },
+        where: { userId, tenantId },
         include: {
             project: { select: { id: true, name: true } },
             settlementItems: { orderBy: { createdAt: 'asc' } },

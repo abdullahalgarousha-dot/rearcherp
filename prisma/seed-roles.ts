@@ -46,7 +46,14 @@ export async function seedRoles() {
     ]
 
     for (const role of roles) {
-        const existing = await (prisma as any).role.findUnique({ where: { name: role.name } })
+        const existing = await (prisma as any).role.findUnique({
+            where: {
+                tenantId_name: {
+                    tenantId: "t_undefined",
+                    name: role.name
+                }
+            }
+        })
         if (!existing) {
             await (prisma as any).role.create({
                 data: {
@@ -61,7 +68,12 @@ export async function seedRoles() {
             // Update permissions for ADMIN/SUPER_ADMIN to ensure they are always full
             if (role.name === 'ADMIN' || role.name === 'SUPER_ADMIN') {
                 await (prisma as any).role.update({
-                    where: { name: role.name },
+                    where: {
+                        tenantId_name: {
+                            tenantId: "t_undefined",
+                            name: role.name
+                        }
+                    },
                     data: {
                         tenantId: "t_undefined",
                         permissionMatrix: JSON.stringify(role.permissionMatrix),
@@ -84,7 +96,14 @@ export async function seedRoles() {
             // Map legacy strings if needed
             if (roleName === "ADMIN") roleName = "SUPER_ADMIN"
 
-            const role = await (prisma as any).role.findUnique({ where: { name: roleName } })
+            const role = await (prisma as any).role.findUnique({
+                where: {
+                    tenantId_name: {
+                        tenantId: "t_undefined",
+                        name: roleName
+                    }
+                }
+            })
 
             if (role) {
                 await (prisma as any).user.update({
@@ -94,7 +113,14 @@ export async function seedRoles() {
                 console.log(`Assigned ${user.name} to ${role.name}`)
             } else {
                 // Fallback to SITE_ENGINEER if role not found
-                const defaultRole = await (prisma as any).role.findUnique({ where: { name: "SITE_ENGINEER" } })
+                const defaultRole = await (prisma as any).role.findUnique({
+                    where: {
+                        tenantId_name: {
+                            tenantId: "t_undefined",
+                            name: "SITE_ENGINEER"
+                        }
+                    }
+                })
                 if (defaultRole) {
                     await (prisma as any).user.update({
                         where: { id: user.id },

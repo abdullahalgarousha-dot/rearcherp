@@ -48,7 +48,8 @@ async function main() {
     for (const module of modules) {
         await prisma.rolePermission.upsert({
             where: {
-                roleName_module: {
+                tenantId_roleName_module: {
+                    tenantId: 't_undefined',
                     roleName: 'ADMIN',
                     module,
                 },
@@ -59,6 +60,7 @@ async function main() {
                 canApprove: true,
             },
             create: {
+                tenantId: 't_undefined',
                 roleName: 'ADMIN',
                 module,
                 canRead: true,

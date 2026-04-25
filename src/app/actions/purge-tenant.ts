@@ -22,9 +22,9 @@ export async function purgeAllTenantData(): Promise<{ success: boolean; error?: 
         return { success: false, error: "Cannot purge: no tenant context." }
     }
 
-    const allowedRoles = ["ADMIN", "GLOBAL_SUPER_ADMIN", "SUPER_ADMIN"]
-    if (!allowedRoles.includes(user?.role)) {
-        return { success: false, error: "Unauthorized." }
+    const isSuperAdmin = user?.role === 'GLOBAL_SUPER_ADMIN'
+    if (!isSuperAdmin) {
+        throw new Error("Unauthorized: Only GLOBAL_SUPER_ADMIN can purge tenant data.")
     }
 
     try {

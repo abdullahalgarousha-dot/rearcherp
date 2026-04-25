@@ -1,23 +1,9 @@
 "use client"
 
-import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
-    DialogTrigger,
-} from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
-import { Plus, FileText, CheckCircle2, DollarSign, Clock, AlertTriangle, Building2 } from "lucide-react"
-import { createMilestone, generateInvoiceFromMilestone } from "@/app/admin/finance/revenue/actions"
-import { useRouter } from "next/navigation"
+import { FileText, DollarSign, Clock, AlertTriangle, Building2 } from "lucide-react"
 import Link from "next/link"
 import { ProjectInvoiceLedger } from "./project-invoice-ledger"
 import { VariationOrdersPanel } from "./variation-orders-panel"
@@ -25,41 +11,18 @@ import { FinancialDashboard } from "./FinancialDashboard"
 import { VendorContractsPanel } from "./vendor-contracts-panel"
 import { isAfter, subDays } from "date-fns"
 
-export function FinancialsTab({ project, milestones, invoices, variationOrders = [], subContracts = [], availableVendors = [], costReport, plData, canEdit = false, canApproveFinance = false }: {
+export function FinancialsTab({ project, invoices, variationOrders = [], subContracts = [], availableVendors = [], costReport, plData, laborCost, canEdit = false, canApproveFinance = false }: {
     project: any,
-    milestones: any[],
     invoices: any[],
     variationOrders?: any[],
     subContracts?: any[],
     availableVendors?: any[],
     costReport?: { totalCost: number, totalHours: number, breakdown?: any[] },
     plData?: any,
+    laborCost?: { totalHours: number, totalCost: number },
     canEdit?: boolean,
     canApproveFinance?: boolean
 }) {
-    const [openDesign, setOpenDesign] = useState(false)
-    const [openSupervision, setOpenSupervision] = useState(false)
-    const [loading, setLoading] = useState(false)
-    const router = useRouter()
-
-    const designMilestones = milestones.filter(m => m.category === 'DESIGN' || !m.category)
-    const supervisionMilestones = milestones.filter(m => m.category === 'SUPERVISION')
-
-    const designTotal = designMilestones.reduce((acc, m) => acc + m.amount, 0)
-    const supervisionTotal = supervisionMilestones.reduce((acc, m) => acc + m.amount, 0)
-
-    async function handleGenerateInvoice(milestoneId: string) {
-        if (!confirm("هل أنت متأكد من إنشاء فاتورة لهذه الدفعة؟")) return
-        setLoading(true)
-        const res = await generateInvoiceFromMilestone(milestoneId)
-        setLoading(false)
-        if (res.success) {
-            router.refresh()
-        } else {
-            alert(res.error)
-        }
-    }
-
     return (
         <div className="space-y-6">
             {/* 1. Real-time P&L Dashboard */}
@@ -71,6 +34,54 @@ export function FinancialsTab({ project, milestones, invoices, variationOrders =
                     </h3>
                     <FinancialDashboard data={plData} />
                 </section>
+            )}
+
+            {/* LIVE COST CENTER — Internal Labor */}
+            {laborCost && (
+                <Card className="border-none shadow-lg bg-gradient-to-br from-rose-50/60 to-white backdrop-blur-xl">
+                    <CardHeader className="pb-3">
+                        <CardTitle className="text-lg font-bold flex items-center gap-2 text-rose-700">
+                            <Clock className="h-5 w-5" />
+                            Internal Labor Cost (تكلفة العمالة الداخلية)
+                        </CardTitle>
+                        <p className="text-xs text-muted-foreground mt-1">
+                            Based on time logs × engineer hourly rates from HR profiles.
+                        </p>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="grid grid-cols-3 gap-4">
+                            <div className="bg-white rounded-2xl p-4 border border-rose-100 shadow-sm text-center">
+                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Logged Hours</p>
+                                <p className="text-3xl font-black text-slate-900">{laborCost.totalHours.toFixed(1)}</p>
+                                <p className="text-xs text-slate-400">hrs</p>
+                            </div>
+                            <div className="bg-white rounded-2xl p-4 border border-rose-100 shadow-sm text-center">
+                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Labor Cost</p>
+                                <p className="text-3xl font-black text-rose-700">{Math.round(laborCost.totalCost).toLocaleString()}</p>
+                                <p className="text-xs text-slate-400">SAR</p>
+                            </div>
+                            <div className="bg-white rounded-2xl p-4 border border-emerald-100 shadow-sm text-center">
+                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Gross Margin</p>
+                                {(() => {
+                                    const margin = (project.contractValue || 0) - laborCost.totalCost
+                                    const pct = project.contractValue > 0
+                                        ? Math.round((margin / project.contractValue) * 100)
+                                        : 0
+                                    return (
+                                        <>
+                                            <p className={`text-3xl font-black ${margin >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
+                                                {pct}%
+                                            </p>
+                                            <p className="text-xs text-slate-400">
+                                                {Math.round(margin).toLocaleString()} SAR
+                                            </p>
+                                        </>
+                                    )
+                                })()}
+                            </div>
+                        </div>
+                    </CardContent>
+                </Card>
             )}
 
             {/* 2. Operational Cost Table (Manpower) */}
@@ -110,41 +121,7 @@ export function FinancialsTab({ project, milestones, invoices, variationOrders =
                 </Card>
             )}
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* 3. DESIGN SECTION */}
-                <Card className="border-none shadow-lg bg-white/60 backdrop-blur-xl">
-                    <CardHeader className="flex flex-row items-center justify-between">
-                        <CardTitle className="text-lg font-bold flex items-center gap-2">
-                            <FileText className="h-5 w-5 text-indigo-600" />
-                            Design Payments
-                        </CardTitle>
-                        <p className="text-xs font-bold text-indigo-600">{designTotal.toLocaleString()} SAR</p>
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                        {designMilestones.map((ms: any) => (
-                            <MilestoneItem key={ms.id} ms={ms} loading={loading} onInvoice={() => handleGenerateInvoice(ms.id)} />
-                        ))}
-                    </CardContent>
-                </Card>
-
-                {/* 4. SUPERVISION SECTION */}
-                <Card className="border-none shadow-lg bg-white/60 backdrop-blur-xl">
-                    <CardHeader className="flex flex-row items-center justify-between">
-                        <CardTitle className="text-lg font-bold flex items-center gap-2">
-                            <CheckCircle2 className="h-5 w-5 text-amber-600" />
-                            Supervision Payments
-                        </CardTitle>
-                        <p className="text-xs font-bold text-amber-600">{supervisionTotal.toLocaleString()} SAR</p>
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                        {supervisionMilestones.map((ms: any) => (
-                            <MilestoneItem key={ms.id} ms={ms} loading={loading} onInvoice={() => handleGenerateInvoice(ms.id)} />
-                        ))}
-                    </CardContent>
-                </Card>
-            </div>
-
-            {/* 5. Invoices History with Traffic Light Indicators */}
+            {/* 3. Invoices History with Traffic Light Indicators */}
             <Card className="border-none shadow-lg bg-white/60 backdrop-blur-xl">
                 <CardHeader>
                     <CardTitle className="text-lg font-bold flex items-center gap-2">
@@ -208,6 +185,7 @@ export function FinancialsTab({ project, milestones, invoices, variationOrders =
                     invoices={invoices}
                     contractValue={project.contractValue || 0}
                     canEdit={canEdit}
+                    serviceType={project.serviceType}
                 />
             </section>
 
@@ -242,30 +220,3 @@ export function FinancialsTab({ project, milestones, invoices, variationOrders =
     )
 }
 
-function MilestoneItem({ ms, loading, onInvoice }: { ms: any, loading: boolean, onInvoice: () => void }) {
-    return (
-        <div className="flex justify-between items-center p-3 bg-white/40 rounded-xl border border-white/20 hover:bg-white transition-all group">
-            <div className="flex items-center gap-3">
-                <div className={`h-2 w-2 rounded-full ${ms.status === 'INVOICED' ? 'bg-emerald-500' : 'bg-slate-300'}`} />
-                <div>
-                    <h4 className="font-bold text-sm text-slate-800">{ms.name}</h4>
-                    <p className="text-[10px] text-muted-foreground">{ms.percentage}% Payment</p>
-                </div>
-            </div>
-            <div className="flex items-center gap-3">
-                <p className="font-bold text-sm text-slate-900">{ms.amount?.toLocaleString() || '0'} SAR</p>
-                {ms.status === 'PENDING' && (
-                    <Button
-                        size="sm"
-                        variant="ghost"
-                        disabled={loading}
-                        onClick={onInvoice}
-                        className="h-7 text-[10px] font-bold text-emerald-600 hover:bg-emerald-50 opacity-0 group-hover:opacity-100 transition-opacity"
-                    >
-                        Issue Invoice
-                    </Button>
-                )}
-            </div>
-        </div>
-    )
-}

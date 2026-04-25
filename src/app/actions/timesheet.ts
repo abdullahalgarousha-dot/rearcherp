@@ -10,7 +10,7 @@ export async function submitTimeLog(data: {
     date: Date;
     hoursLogged: number;
     description: string;
-    projectId?: string; // Now optional
+    projectId: string; // Mandatory
     type: "OFFICE" | "SITE";
 }) {
     const session = await auth()
@@ -29,19 +29,21 @@ export async function submitTimeLog(data: {
     }
 
     try {
-        const user = await (db as any).user.findUnique({
+        const user = await db.user.findUnique({
             where: { id: userId },
             include: { profile: true }
         })
 
         if (!user || !user.profile) return { error: "User profile not found" }
 
-        // Fetch Company Settings for Daily Goal
-        const settings = await (db as any).companyProfile.findFirst()
+        // Fetch Company Settings for Daily Goal - strictly scoped to tenant
+        const settings = await db.companyProfile.findFirst({
+            where: { tenantId: user.tenantId }
+        })
         const dailyGoal = settings?.workingHoursPerDay || 8
 
         // Check cumulative hours for the day
-        const dayLogs = await (db as any).timeLog.findMany({
+        const dayLogs = await db.timeLog.findMany({
             where: {
                 userId: userId,
                 date: {
@@ -55,32 +57,40 @@ export async function submitTimeLog(data: {
         const newTotal = totalToday + parseFloat(data.hoursLogged.toString())
 
         if (data.projectId && data.projectId !== 'OFFICE') {
-            const project = await (db as any).project.findUnique({
+            const project = await db.project.findUnique({
                 where: { id: data.projectId }
             })
 
             if (!project) return { error: "Project not found" }
         }
 
-        // Calculate Cost: User's hourlyRate or Derived from Basic Salary
+        // Calculate Cost — priority: explicit hourlyRate, then TotalSalary / 240
+        // TotalSalary = basic + housing + transport + other allowances
+        // 240 = 30 calendar days × 8 hours  (ERP standard for cost centre allocation)
+        const profile = user.profile
+        const totalSalary = (profile.basicSalary || 0)
+            + (profile.housingAllowance || 0)
+            + (profile.transportAllowance || 0)
+            + (profile.otherAllowance || 0)
+
         let calculatedHourlyRate = 0;
-        if (user.profile.hourlyRate && user.profile.hourlyRate > 0) {
-            calculatedHourlyRate = user.profile.hourlyRate;
+        if (profile.hourlyRate && profile.hourlyRate > 0) {
+            calculatedHourlyRate = profile.hourlyRate
         } else {
-            const salary = user.profile.basicSalary || 0
-            calculatedHourlyRate = salary / (dailyGoal * (settings?.workingDaysPerWeek || 5) * 4) // Dynamic calculation
+            calculatedHourlyRate = totalSalary > 0 ? totalSalary / 240 : 0
         }
 
         const costAmount = parseFloat(data.hoursLogged.toString()) * calculatedHourlyRate
 
-        await (db as any).timeLog.create({
+        await db.timeLog.create({
             data: {
+                tenantId: user.tenantId,
                 date: new Date(data.date),
                 hoursLogged: parseFloat(data.hoursLogged.toString()),
                 description: data.description,
                 type: data.type,
                 userId: userId,
-                projectId: (data.projectId === 'OFFICE' || !data.projectId) ? null : data.projectId,
+                projectId: data.projectId,
                 cost: costAmount,
             }
         })
@@ -98,28 +108,29 @@ export async function submitTimeLog(data: {
     }
 }
 
-export async function getAssignedProjects() {
+export async function getActiveProjects() {
     const session = await auth()
-    const userId = (session?.user as any)?.id
+    const tenantId = (session?.user as any)?.tenantId
 
-    if (!userId) return []
+    if (!tenantId) return []
 
     try {
-        const user = await (db as any).user.findUnique({
-            where: { id: userId },
-            include: {
-                projects: {
-                    select: { id: true, name: true, code: true }
-                }
-            }
+        const projects = await db.project.findMany({
+            where: {
+                tenantId,
+                status: 'ACTIVE'
+            },
+            select: { id: true, name: true, code: true },
+            orderBy: { name: 'asc' }
         })
 
-        return user?.projects || []
+        return projects
     } catch (e) {
         console.error(e)
         return []
     }
 }
+
 
 export async function getTodayLogs() {
     const session = await auth()
@@ -130,7 +141,7 @@ export async function getTodayLogs() {
     const today = new Date()
 
     try {
-        const logs = await (db as any).timeLog.findMany({
+        const logs = await db.timeLog.findMany({
             where: {
                 userId: userId,
                 date: {
@@ -172,7 +183,7 @@ export async function getEmployeeReport(userId: string, startDate: Date, endDate
 
         // Verify the target user belongs to the same tenant (GLOBAL_SUPER_ADMIN bypasses)
         if (!isGlobalAdmin) {
-            const targetUser = await (db as any).user.findFirst({
+            const targetUser = await db.user.findFirst({
                 where: { id: userId, tenantId },
                 select: { id: true }
             })
@@ -181,9 +192,10 @@ export async function getEmployeeReport(userId: string, startDate: Date, endDate
     }
 
     try {
-        const logs = await (db as any).timeLog.findMany({
+        const logs = await db.timeLog.findMany({
             where: {
                 userId: userId,
+                tenantId: isGlobalAdmin ? undefined : tenantId,
                 date: {
                     gte: startOfDay(startDate),
                     lte: endOfDay(endDate),
@@ -231,7 +243,7 @@ export async function getProjectCostReport(projectId: string) {
 
     // Verify project belongs to this tenant before exposing cost data (GLOBAL_SUPER_ADMIN bypasses)
     if (!isGlobalAdmin) {
-        const project = await (db as any).project.findFirst({
+        const project = await db.project.findFirst({
             where: { id: projectId, tenantId },
             select: { id: true }
         })
@@ -239,7 +251,7 @@ export async function getProjectCostReport(projectId: string) {
     }
 
     try {
-        const result = await (db as any).timeLog.aggregate({
+        const result = await db.timeLog.aggregate({
             where: { projectId },
             _sum: {
                 cost: true,
@@ -247,7 +259,7 @@ export async function getProjectCostReport(projectId: string) {
             }
         })
 
-        const detailedLogs = await (db as any).timeLog.findMany({
+        const detailedLogs = await db.timeLog.findMany({
             where: { projectId },
             include: {
                 user: { select: { id: true, name: true } }
@@ -305,7 +317,7 @@ export async function getAllEmployees() {
     if (!tenantId && !isGlobalAdmin) return []
 
     try {
-        const users = await (db as any).user.findMany({
+        const users = await db.user.findMany({
             where: isGlobalAdmin ? {} : { tenantId },
             select: { id: true, name: true, role: true }
         })

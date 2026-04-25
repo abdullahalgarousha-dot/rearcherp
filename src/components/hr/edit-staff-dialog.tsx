@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import {
     Dialog,
@@ -13,8 +13,10 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Pencil, Trash2, AlertCircle, KeyRound, Loader2 } from "lucide-react"
+import { Pencil, Trash2, KeyRound, Loader2, ShieldCheck } from "lucide-react"
 import { updateStaffProfile, deleteStaff, adminForcePasswordChange } from "@/app/admin/hr/actions"
+import { toast } from "sonner"
+import { computeMonthlyCost } from "@/lib/payroll-utils"
 import { useRouter, usePathname } from "next/navigation"
 import {
     Select,
@@ -23,6 +25,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select"
+import { formatRoleName } from "@/lib/role-utils"
 import {
     AlertDialog,
     AlertDialogAction,
@@ -35,13 +38,32 @@ import {
     AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 
-export function EditStaffDialog({ staff, managers, branches = [] }: { staff: any, managers: { id: string, name: string }[], branches?: any[] }) {
+const SUPER_ADMIN_ROLES = ['GLOBAL_SUPER_ADMIN', 'SUPER_ADMIN']
+
+export function EditStaffDialog({
+    staff,
+    managers,
+    branches = [],
+    roles = [],
+    currentUserRole,
+}: {
+    staff: any
+    managers: { id: string, name: string }[]
+    branches?: any[]
+    roles?: { id: string, name: string }[]
+    currentUserRole?: string
+}) {
+    const canEditRBAC = SUPER_ADMIN_ROLES.includes(currentUserRole ?? '')
     const [open, setOpen] = useState(false)
     const [loading, setLoading] = useState(false)
     const [deleteLoading, setDeleteLoading] = useState(false)
     const [passwordLoading, setPasswordLoading] = useState(false)
     const [newAdminPass, setNewAdminPass] = useState("")
     const [branchId, setBranchId] = useState(staff.branchId || "")
+    const [selectedRoleId, setSelectedRoleId] = useState(staff.roleId || "")
+    const [selectedAccessScope, setSelectedAccessScope] = useState(staff.accessScope || "ALL")
+    const [photoPreview, setPhotoPreview] = useState<string | null>(staff.photo || null)
+    const fileInputRef = useRef<HTMLInputElement>(null)
     const router = useRouter()
     const pathname = usePathname()
 
@@ -54,12 +76,20 @@ export function EditStaffDialog({ staff, managers, branches = [] }: { staff: any
         gosi: staff.profile?.gosiDeduction || 0,
     })
 
-    const totalCost = finances.basic + finances.housing + finances.transport + finances.other - finances.gosi
+    const totalCost = computeMonthlyCost({
+        basicSalary: finances.basic,
+        housingAllowance: finances.housing,
+        transportAllowance: finances.transport,
+        otherAllowance: finances.other,
+        gosiDeduction: finances.gosi,
+    })
 
     useEffect(() => {
         if (staff.branchId) {
             setBranchId(staff.branchId)
         }
+        setSelectedRoleId(staff.roleId || "")
+        setSelectedAccessScope(staff.accessScope || "ALL")
         setFinances({
             basic: staff.basicSalary ?? staff.profile?.basicSalary ?? 0,
             housing: staff.housingAllowance ?? staff.profile?.housingAllowance ?? 0,
@@ -76,6 +106,12 @@ export function EditStaffDialog({ staff, managers, branches = [] }: { staff: any
 
         // Enforce branchId
         if (branchId) formData.set("branchId", branchId)
+
+        // Enforce RBAC selects (shadcn Select doesn't write to FormData natively)
+        if (canEditRBAC) {
+            formData.set("roleId", selectedRoleId)
+            formData.set("accessScope", selectedAccessScope)
+        }
 
         try {
             const res = await updateStaffProfile(staff.id, formData)
@@ -125,11 +161,13 @@ export function EditStaffDialog({ staff, managers, branches = [] }: { staff: any
         try {
             const res = await adminForcePasswordChange(staff.id, newAdminPass)
             if (res.success) {
-                alert(res.message)
+                toast.success(res.message || "Password updated successfully")
                 setNewAdminPass("")
             } else {
-                alert(res.error || "Failed to reset password")
+                toast.error(res.error || "Failed to reset password")
             }
+        } catch (error: any) {
+            toast.error(error.message || "An unexpected error occurred")
         } finally {
             setPasswordLoading(false)
         }
@@ -150,7 +188,7 @@ export function EditStaffDialog({ staff, managers, branches = [] }: { staff: any
                 </Button>
             </DialogTrigger>
             <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto rtl:text-right border-none shadow-2xl bg-white/95 backdrop-blur-xl">
-                <form key={staff.updatedAt || staff.id} onSubmit={handleSubmit}>
+                <form key={staff.updatedAt?.toString?.() || staff.id} onSubmit={handleSubmit}>
                     <DialogHeader className="border-b border-slate-100 pb-4 mb-6">
                         <DialogTitle className="text-xl font-black text-slate-900 flex items-center gap-2">
                             <div className="h-8 w-8 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600">
@@ -173,11 +211,11 @@ export function EditStaffDialog({ staff, managers, branches = [] }: { staff: any
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="grid gap-2">
                                     <Label htmlFor="name">Full Name</Label>
-                                    <Input id="name" name="name" defaultValue={staff.name} required className="rounded-xl border-slate-200" />
+                                    <Input id="name" name="name" defaultValue={staff.name ?? ''} required className="rounded-xl border-slate-200" />
                                 </div>
                                 <div className="grid gap-2">
                                     <Label htmlFor="nationality">Nationality</Label>
-                                    <Input id="nationality" name="nationality" defaultValue={staff.nationality} className="rounded-xl border-slate-200" />
+                                    <Input id="nationality" name="nationality" defaultValue={staff.nationality ?? staff.profile?.nationality ?? ''} className="rounded-xl border-slate-200" />
                                 </div>
                             </div>
                             <div className="grid grid-cols-3 gap-4">
@@ -210,7 +248,79 @@ export function EditStaffDialog({ staff, managers, branches = [] }: { staff: any
                                 </div>
                                 <div className="grid gap-2">
                                     <Label htmlFor="googleEmail">Official Email</Label>
-                                    <Input id="googleEmail" name="googleEmail" type="email" defaultValue={staff.googleEmail} className="rounded-xl border-slate-200" />
+                                    <Input id="googleEmail" name="googleEmail" type="email" defaultValue={staff.googleEmail ?? staff.profile?.googleEmail ?? ''} className="rounded-xl border-slate-200" />
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Role & Access Scope — SUPER ADMIN ONLY */}
+                        {canEditRBAC && (
+                            <div className="mt-2 p-3 rounded-xl border border-indigo-100 bg-indigo-50/50 space-y-3">
+                                <p className="text-xs font-bold text-indigo-700 flex items-center gap-1.5">
+                                    <ShieldCheck className="h-3.5 w-3.5" />
+                                    Role & Access Scope (Admin Only)
+                                </p>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="grid gap-2">
+                                        <Label htmlFor="roleId" className="text-xs text-indigo-900">Role (الدور)</Label>
+                                        <Select value={selectedRoleId} onValueChange={setSelectedRoleId}>
+                                            <SelectTrigger className="rounded-xl border-indigo-200 bg-white">
+                                                <SelectValue placeholder="Select role..." />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {roles.map(r => (
+                                                    <SelectItem key={r.id} value={r.id}>{formatRoleName(r.name)}</SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className="grid gap-2">
+                                        <Label htmlFor="accessScope" className="text-xs text-indigo-900">Access Scope (نطاق الصلاحية)</Label>
+                                        <Select value={selectedAccessScope} onValueChange={setSelectedAccessScope}>
+                                            <SelectTrigger className="rounded-xl border-indigo-200 bg-white">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="ALL">ALL — كافة الفروع</SelectItem>
+                                                <SelectItem value="BRANCH">BRANCH — محدود بفرع الموظف</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Section 1b: Avatar */}
+                        <div className="bg-slate-50/50 p-4 rounded-2xl border border-slate-100 space-y-3">
+                            <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
+                                <span className="w-2 h-2 rounded-full bg-violet-500"></span>
+                                Profile Photo
+                            </h3>
+                            <div className="flex items-center gap-4">
+                                <div className="h-16 w-16 rounded-2xl bg-slate-200 flex items-center justify-center text-2xl font-black text-slate-400 overflow-hidden flex-shrink-0 ring-2 ring-offset-2 ring-violet-100">
+                                    {photoPreview
+                                        ? <img src={photoPreview} alt="avatar preview" className="h-full w-full object-cover" />
+                                        : (staff.name?.charAt(0)?.toUpperCase() || '?')
+                                    }
+                                </div>
+                                <div className="flex-1 grid gap-2">
+                                    <Label htmlFor="photo">Upload Photo</Label>
+                                    <input
+                                        ref={fileInputRef}
+                                        id="photo"
+                                        name="photo"
+                                        type="file"
+                                        accept="image/*"
+                                        className="block w-full text-sm text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-violet-50 file:text-violet-700 hover:file:bg-violet-100 rounded-xl border border-slate-200 cursor-pointer"
+                                        onChange={e => {
+                                            const file = e.target.files?.[0]
+                                            if (file) {
+                                                const url = URL.createObjectURL(file)
+                                                setPhotoPreview(url)
+                                            }
+                                        }}
+                                    />
+                                    <p className="text-[10px] text-slate-400 font-medium">JPG, PNG, WebP — max 5 MB. Leave empty to keep existing photo.</p>
                                 </div>
                             </div>
                         </div>
@@ -224,25 +334,29 @@ export function EditStaffDialog({ staff, managers, branches = [] }: { staff: any
                             <div className="grid grid-cols-3 gap-4">
                                 <div className="grid gap-2">
                                     <Label htmlFor="passportNumber">Passport No.</Label>
-                                    <Input id="passportNumber" name="passportNumber" defaultValue={staff.passportNumber} className="rounded-xl border-slate-200" />
+                                    {/* name="passportNumber" → server maps to DB field passportNum */}
+                                    <Input id="passportNumber" name="passportNumber" defaultValue={staff.passportNum ?? staff.profile?.passportNum ?? ''} className="rounded-xl border-slate-200" />
                                 </div>
                                 <div className="grid gap-2">
                                     <Label htmlFor="passportIssueDate">Issue Date</Label>
-                                    <Input id="passportIssueDate" name="passportIssueDate" type="date" defaultValue={formatDateForInput(staff.passportIssueDate)} className="rounded-xl border-slate-200" />
+                                    <Input id="passportIssueDate" name="passportIssueDate" type="date" className="rounded-xl border-slate-200" />
                                 </div>
                                 <div className="grid gap-2">
                                     <Label htmlFor="passportExpiryDate">Expiry Date</Label>
-                                    <Input id="passportExpiryDate" name="passportExpiryDate" type="date" defaultValue={formatDateForInput(staff.passportExpiryDate)} className="rounded-xl border-slate-200" />
+                                    {/* name="passportExpiryDate" → server maps to DB field passportExpiry */}
+                                    <Input id="passportExpiryDate" name="passportExpiryDate" type="date" defaultValue={formatDateForInput(staff.passportExpiry ?? staff.profile?.passportExpiry)} className="rounded-xl border-slate-200" />
                                 </div>
                             </div>
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="grid gap-2">
                                     <Label htmlFor="iqamaNumber">Iqama / National ID</Label>
-                                    <Input id="iqamaNumber" name="iqamaNumber" defaultValue={staff.iqamaNumber} className="rounded-xl border-slate-200" />
+                                    {/* name="iqamaNumber" → server maps to DB field idNumber */}
+                                    <Input id="iqamaNumber" name="iqamaNumber" defaultValue={staff.idNumber ?? staff.profile?.idNumber ?? ''} className="rounded-xl border-slate-200" />
                                 </div>
                                 <div className="grid gap-2">
                                     <Label htmlFor="iqamaExpiryDate">ID Expiry Date</Label>
-                                    <Input id="iqamaExpiryDate" name="iqamaExpiryDate" type="date" defaultValue={formatDateForInput(staff.iqamaExpiryDate)} className="rounded-xl border-slate-200" />
+                                    {/* name="iqamaExpiryDate" → server maps to DB field idExpiry */}
+                                    <Input id="iqamaExpiryDate" name="iqamaExpiryDate" type="date" defaultValue={formatDateForInput(staff.idExpiry ?? staff.profile?.idExpiry)} className="rounded-xl border-slate-200" />
                                 </div>
                             </div>
                         </div>
@@ -256,15 +370,18 @@ export function EditStaffDialog({ staff, managers, branches = [] }: { staff: any
                             <div className="grid grid-cols-3 gap-4">
                                 <div className="grid gap-2">
                                     <Label htmlFor="insuranceCompany">Insurance Provider</Label>
-                                    <Input id="insuranceCompany" name="insuranceCompany" defaultValue={staff.insuranceCompany} className="rounded-xl border-slate-200" />
+                                    {/* name="insuranceCompany" → server maps to DB field insuranceProvider */}
+                                    <Input id="insuranceCompany" name="insuranceCompany" defaultValue={staff.insuranceProvider ?? staff.profile?.insuranceProvider ?? ''} className="rounded-xl border-slate-200" />
                                 </div>
                                 <div className="grid gap-2">
                                     <Label htmlFor="policyNumber">Policy Number</Label>
-                                    <Input id="policyNumber" name="policyNumber" defaultValue={staff.policyNumber} className="rounded-xl border-slate-200" />
+                                    {/* name="policyNumber" → server maps to DB field insurancePolicy */}
+                                    <Input id="policyNumber" name="policyNumber" defaultValue={staff.insurancePolicy ?? staff.profile?.insurancePolicy ?? ''} className="rounded-xl border-slate-200" />
                                 </div>
                                 <div className="grid gap-2">
                                     <Label htmlFor="insuranceExpiryDate">Expiry Date</Label>
-                                    <Input id="insuranceExpiryDate" name="insuranceExpiryDate" type="date" defaultValue={formatDateForInput(staff.insuranceExpiryDate)} className="rounded-xl border-slate-200" />
+                                    {/* name="insuranceExpiryDate" → server maps to DB field insuranceExpiry */}
+                                    <Input id="insuranceExpiryDate" name="insuranceExpiryDate" type="date" defaultValue={formatDateForInput(staff.insuranceExpiry ?? staff.profile?.insuranceExpiry)} className="rounded-xl border-slate-200" />
                                 </div>
                             </div>
                             <div className="grid grid-cols-2 gap-4">
@@ -330,7 +447,7 @@ export function EditStaffDialog({ staff, managers, branches = [] }: { staff: any
                                 </div>
                                 <div className="grid gap-2">
                                     <Label htmlFor="hireDate">Hire Date</Label>
-                                    <Input id="hireDate" name="hireDate" type="date" defaultValue={formatDateForInput(staff.hireDate)} className="rounded-xl border-slate-200" />
+                                    <Input id="hireDate" name="hireDate" type="date" defaultValue={formatDateForInput(staff.hireDate ?? staff.profile?.hireDate)} className="rounded-xl border-slate-200" />
                                 </div>
                             </div>
 

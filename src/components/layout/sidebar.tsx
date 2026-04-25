@@ -7,6 +7,7 @@ import { LayoutDashboard, Users, Briefcase, Settings, LogOut, Building2, Chevron
 import { motion, AnimatePresence } from "framer-motion"
 import { signOut } from "next-auth/react"
 import { useState } from "react"
+import { NotificationBell } from "@/components/layout/notification-bell"
 
 const sidebarItems = [
     { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
@@ -153,6 +154,10 @@ export function Sidebar({ className, menuLinks = [], settings, user }: SidebarPr
                 </nav>
 
                 <div className="pt-6 border-t border-white/10">
+                    <div className="flex items-center justify-between px-4 pb-3">
+                        <span className="text-xs text-primary-foreground/40 font-medium">Notifications</span>
+                        <NotificationBell />
+                    </div>
                     <button
                         onClick={() => signOut({ callbackUrl: "/login" })}
                         className="flex items-center gap-3 px-4 py-3 w-full rounded-xl text-primary-foreground/70 hover:bg-white/5 hover:text-red-400 transition-colors"

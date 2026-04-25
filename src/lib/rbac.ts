@@ -1,6 +1,12 @@
 import { auth } from "@/auth"
 import { db } from "@/lib/db"
 
+// ─────────────────────────────────────────────────────────────────────────────
+// PERMISSION MATRIX — the canonical shape for all permission data.
+// This interface is the single schema for what gets stored in the DB
+// (Role.permissionMatrix JSON) and carried in the JWT (user.permissions).
+// ─────────────────────────────────────────────────────────────────────────────
+
 export interface PermissionMatrix {
     projects: {
         view: 'ALL' | 'ASSIGNED' | 'NONE';
@@ -31,7 +37,7 @@ export interface PermissionMatrix {
         viewVATReports: boolean;
         viewSalarySheets: boolean;
         manageLoans: boolean;
-        canApproveFinance: boolean; // New: Authorization toggle for VOs, Petty Cash, Vendor payments
+        canApproveFinance: boolean;
     };
     system: {
         manageSettings: boolean;
@@ -46,166 +52,199 @@ export interface PermissionMatrix {
     };
 }
 
-export const SUPER_ADMIN_PERMISSIONS: PermissionMatrix = {
-    projects: { view: 'ALL', createEdit: true, approve: true, delete: true, canAccessDrive: true },
-    supervision: { view: 'ALL', manageDSR: true, manageIR: true, manageNCR: true, approve: true, deleteReports: true },
-    hr: { view: 'ALL_BRANCHES', createEdit: true, approveLeaves: true, delete: true, viewOfficialDocs: true, viewMedicalLeaves: true },
-    finance: { masterVisible: true, viewContracts: true, viewVATReports: true, viewSalarySheets: true, manageLoans: true, canApproveFinance: true },
-    system: { manageSettings: true, manageRoles: true, viewLogs: true, viewAnalytics: true },
-    crm: { view: true, createEdit: true, delete: true }
-};
+// Internal deny-all used only as a safe fallback when no permissions are found.
+// Not exported — callers must not depend on this constant directly.
+const DENY_ALL: PermissionMatrix = {
+    projects:   { view: 'NONE',          createEdit: false, approve: false, delete: false, canAccessDrive: false },
+    supervision:{ view: 'NONE',          manageDSR: false, manageIR: false, manageNCR: false, approve: false, deleteReports: false },
+    hr:         { view: 'NONE',          createEdit: false, approveLeaves: false, delete: false, viewOfficialDocs: false, viewMedicalLeaves: false },
+    finance:    { masterVisible: false,  viewContracts: false, viewVATReports: false, viewSalarySheets: false, manageLoans: false, canApproveFinance: false },
+    system:     { manageSettings: false, manageRoles: false, viewLogs: false, viewAnalytics: false },
+    crm:        { view: false,           createEdit: false, delete: false },
+}
 
-export const DEFAULT_DENY_PERMISSIONS: PermissionMatrix = {
-    projects: { view: 'NONE', createEdit: false, approve: false, delete: false, canAccessDrive: false },
-    supervision: { view: 'NONE', manageDSR: false, manageIR: false, manageNCR: false, approve: false, deleteReports: false },
-    hr: { view: 'NONE', createEdit: false, approveLeaves: false, delete: false, viewOfficialDocs: false, viewMedicalLeaves: false },
-    finance: { masterVisible: false, viewContracts: false, viewVATReports: false, viewSalarySheets: false, manageLoans: false, canApproveFinance: false },
-    system: { manageSettings: false, manageRoles: false, viewLogs: false, viewAnalytics: false },
-    crm: { view: false, createEdit: false, delete: false }
-};
+// ─────────────────────────────────────────────────────────────────────────────
+// INTERNAL HELPERS
+// ─────────────────────────────────────────────────────────────────────────────
 
-export const PROJECT_MANAGER_PERMISSIONS: PermissionMatrix = {
-    ...DEFAULT_DENY_PERMISSIONS,
-    projects: { view: 'ALL', createEdit: true, approve: true, delete: false, canAccessDrive: true },
-    supervision: { view: 'ALL', manageDSR: true, manageIR: true, manageNCR: true, approve: true, deleteReports: false },
-    hr: { view: 'ASSIGNED_BRANCH', createEdit: false, approveLeaves: false, delete: false, viewOfficialDocs: false, viewMedicalLeaves: false },
-    crm: { view: true, createEdit: true, delete: false },
-};
+/**
+ * Safely reads a nested field from an untrusted JSON object, returning the
+ * DENY_ALL fallback value if the path doesn't exist or the type mismatches.
+ */
+function readPermission<K extends keyof PermissionMatrix>(
+    perms: Partial<PermissionMatrix> | null | undefined,
+    module: K,
+    action: keyof PermissionMatrix[K]
+): PermissionMatrix[K][typeof action] {
+    const modulePerms = perms?.[module] as PermissionMatrix[K] | undefined
+    if (modulePerms && action in modulePerms && modulePerms[action] !== undefined) {
+        return modulePerms[action]
+    }
+    return DENY_ALL[module][action]
+}
 
-export const SITE_ENGINEER_PERMISSIONS: PermissionMatrix = {
-    ...DEFAULT_DENY_PERMISSIONS,
-    projects: { view: 'ASSIGNED', createEdit: false, approve: false, delete: false, canAccessDrive: true },
-    supervision: { view: 'ALL', manageDSR: true, manageIR: true, manageNCR: true, approve: false, deleteReports: false },
-};
+/**
+ * Parses the permission matrix from the session JWT.
+ * Returns null if no permissions blob is present.
+ */
+function sessionPermissions(user: any): Partial<PermissionMatrix> | null {
+    const raw = user?.permissions
+    if (!raw) return null
+    if (typeof raw === 'object') return raw as Partial<PermissionMatrix>
+    if (typeof raw === 'string') {
+        try { return JSON.parse(raw) as Partial<PermissionMatrix> } catch { return null }
+    }
+    return null
+}
 
-export const FINANCE_PERMISSIONS: PermissionMatrix = {
-    ...DEFAULT_DENY_PERMISSIONS,
-    finance: { masterVisible: true, viewContracts: true, viewVATReports: true, viewSalarySheets: true, manageLoans: true, canApproveFinance: true },
-};
+// ─────────────────────────────────────────────────────────────────────────────
+// hasPermission — granular field-level check
+// ─────────────────────────────────────────────────────────────────────────────
 
-export const HR_PERMISSIONS: PermissionMatrix = {
-    ...DEFAULT_DENY_PERMISSIONS,
-    hr: { view: 'ALL_BRANCHES', createEdit: true, approveLeaves: true, delete: false, viewOfficialDocs: true, viewMedicalLeaves: true },
-};
-
-const ROLE_PERMISSIONS_MAP: Record<string, PermissionMatrix> = {
-    'ADMIN': SUPER_ADMIN_PERMISSIONS,
-    'SUPER_ADMIN': SUPER_ADMIN_PERMISSIONS,
-    'GLOBAL_SUPER_ADMIN': SUPER_ADMIN_PERMISSIONS,
-    'PROJECT_MANAGER': PROJECT_MANAGER_PERMISSIONS,
-    'PM': PROJECT_MANAGER_PERMISSIONS,
-    'SITE_ENGINEER': SITE_ENGINEER_PERMISSIONS,
-    'FINANCE': FINANCE_PERMISSIONS,
-    'ACCOUNTANT': FINANCE_PERMISSIONS,
-    'HR': HR_PERMISSIONS,
-    'HR_MANAGER': HR_PERMISSIONS,
-};
-
-// --- NEW DYNAMIC PERMISSION CHECKER ---
+/**
+ * Returns the value of a specific permission field from the caller's session.
+ *
+ * - GLOBAL_SUPER_ADMIN: always returns the maximally-permissive value for that field.
+ * - Everyone else: reads from user.permissions (JWT), falls back to DENY_ALL.
+ *   No hardcoded role maps — the DB is the sole source of truth at login time.
+ */
 export async function hasPermission<K extends keyof PermissionMatrix>(
     module: K,
     action: keyof PermissionMatrix[K]
 ): Promise<PermissionMatrix[K][keyof PermissionMatrix[K]]> {
     const session = await auth()
-
-    if (!session || !session.user) {
-        return DEFAULT_DENY_PERMISSIONS[module][action];
-    }
+    if (!session?.user) return DENY_ALL[module][action]
 
     const user = session.user as any
-    const role = user.role
 
-    // Check custom permissions first if they exist
-    const perms = user.permissions as PermissionMatrix | null
-    if (perms && perms[module] && perms[module][action] !== undefined) {
-        return perms[module][action]
+    // TARGET 1: ONLY the SaaS operator bypasses all permission checks.
+    // Tenant ADMIN accounts are subject to their purchased PermissionMatrix.
+    if (user.role === 'GLOBAL_SUPER_ADMIN') {
+        // Return maximally-permissive value for this field type
+        const denyValue = DENY_ALL[module][action]
+        if (typeof denyValue === 'boolean') return true as any
+        if (denyValue === 'NONE') {
+            // Return the broadest view scope for this module
+            if (module === 'hr') return 'ALL_BRANCHES' as any
+            return 'ALL' as any
+        }
+        return denyValue // shouldn't reach here but safe fallback
     }
 
-    // Role-based defaults
-    const roleDefault = ROLE_PERMISSIONS_MAP[role as string]
-    if (roleDefault && roleDefault[module] && roleDefault[module][action] !== undefined) {
-        return roleDefault[module][action]
-    }
-
-    // Default deny if matrix not found
-    return DEFAULT_DENY_PERMISSIONS[module][action]
+    // TARGET 2: Read purely from session-carried permissions — no hardcoded maps.
+    const perms = sessionPermissions(user)
+    return readPermission(perms, module, action)
 }
 
-// --- LEGACY BACKWARDS COMPATIBILITY ---
+// ─────────────────────────────────────────────────────────────────────────────
+// checkPermission — coarse boolean gate used by Server Actions and pages
+// ─────────────────────────────────────────────────────────────────────────────
+
 export type ModuleName = 'HR' | 'FINANCE' | 'PROJECTS' | 'SUPERVISION' | 'USERS' | 'ROLES' | 'SETTINGS' | 'LOGS' | 'ANALYTICS'
 export type ActionType = 'read' | 'write' | 'approve'
 
+/**
+ * Resolves a coarse module+action check to a boolean.
+ *
+ * Resolution order:
+ *   1. GLOBAL_SUPER_ADMIN → always true.
+ *   2. user.permissions (JWT) → maps granular fields to the requested action.
+ *   3. DB fallback (RolePermission) — strictly scoped to tenantId to prevent
+ *      cross-tenant IDOR via roleName collision.
+ */
 export async function checkPermission(module: ModuleName, action: ActionType): Promise<boolean> {
     const session = await auth()
-    if (!session || !session.user) return false
+    if (!session?.user) return false
 
     const user = session.user as any
-    const role = user.role
+    const role = user.role as string
+    const tenantId = user.tenantId as string | undefined
 
-    // Check custom permissions first
-    let perms = user.permissions as PermissionMatrix | null
+    // TARGET 1: Only GLOBAL_SUPER_ADMIN is a master key.
+    if (role === 'GLOBAL_SUPER_ADMIN') return true
 
-    // If no custom perms, use role-based defaults
-    if (!perms) {
-        perms = ROLE_PERMISSIONS_MAP[role as string] || DEFAULT_DENY_PERMISSIONS
-    }
-
+    // TARGET 2: Read from session permissions — no ROLE_PERMISSIONS_MAP fallback.
+    const perms = sessionPermissions(user)
     if (perms) {
-        switch (module) {
-            case 'FINANCE':
-                if (action === 'read') return perms.finance?.masterVisible === true;
-                if (action === 'approve') return perms.finance?.canApproveFinance === true || perms.finance?.manageLoans === true;
-                if (action === 'write') return perms.finance?.masterVisible === true;
-                break;
-            case 'HR':
-                if (action === 'read') return perms.hr?.view !== 'NONE';
-                if (action === 'write') return perms.hr?.createEdit === true;
-                if (action === 'approve') return perms.hr?.approveLeaves === true;
-                break;
-            case 'PROJECTS':
-                if (action === 'read') return perms.projects?.view !== 'NONE';
-                if (action === 'write') return perms.projects?.createEdit === true;
-                if (action === 'approve') return perms.projects?.approve === true;
-                break;
-            case 'SUPERVISION':
-                if (action === 'read') return perms.supervision?.view !== 'NONE';
-                if (action === 'write') return perms.supervision?.manageDSR === true;
-                if (action === 'approve') return perms.supervision?.manageDSR === true;
-                break;
-            case 'SETTINGS':
-                return perms.system?.manageSettings === true;
-            case 'ROLES':
-            case 'USERS':
-                return perms.system?.manageRoles === true;
-            case 'LOGS':
-                return perms.system?.viewLogs === true;
-            case 'ANALYTICS':
-                return perms.system?.viewAnalytics === true;
-        }
+        return resolveModuleAction(perms, module, action)
     }
+
+    // TARGET 3: DB fallback — MUST be scoped to tenantId.
+    // roleName alone is not unique across a multi-tenant SaaS.
+    if (!tenantId) return false
 
     try {
-        const permission = await (db as any).rolePermission.findUnique({
+        const dbPerm = await (db as any).rolePermission.findUnique({
             where: {
-                roleName_module: {
-                    roleName: role,
-                    module: module
-                }
-            }
+                tenantId_roleName_module: { tenantId, roleName: role, module }
+            },
+            select: { canRead: true, canWrite: true, canApprove: true }
         })
-
-        if (!permission) return false
-
-        switch (action) {
-            case 'read': return permission.canRead
-            case 'write': return permission.canWrite
-            case 'approve': return permission.canApprove
-            default: return false
-        }
+        if (!dbPerm) return false
+        if (action === 'read')    return dbPerm.canRead
+        if (action === 'write')   return dbPerm.canWrite
+        if (action === 'approve') return dbPerm.canApprove
+        return false
     } catch {
-        return false;
+        return false
     }
 }
+
+/**
+ * Maps a coarse (module, action) pair to the appropriate PermissionMatrix field(s).
+ * All unmapped cases default to false — no hidden grants.
+ */
+function resolveModuleAction(
+    perms: Partial<PermissionMatrix>,
+    module: ModuleName,
+    action: ActionType
+): boolean {
+    switch (module) {
+        case 'PROJECTS':
+            if (action === 'read')    return perms.projects?.view !== 'NONE' && perms.projects?.view !== undefined
+            if (action === 'write')   return perms.projects?.createEdit === true
+            if (action === 'approve') return perms.projects?.approve === true
+            return false
+
+        case 'SUPERVISION':
+            if (action === 'read')    return perms.supervision?.view !== 'NONE' && perms.supervision?.view !== undefined
+            if (action === 'write')   return perms.supervision?.manageDSR === true
+            if (action === 'approve') return perms.supervision?.approve === true
+            return false
+
+        case 'HR':
+            if (action === 'read')    return perms.hr?.view !== 'NONE' && perms.hr?.view !== undefined
+            if (action === 'write')   return perms.hr?.createEdit === true
+            if (action === 'approve') return perms.hr?.approveLeaves === true
+            return false
+
+        case 'FINANCE':
+            if (action === 'read')    return perms.finance?.masterVisible === true
+            if (action === 'write')   return perms.finance?.masterVisible === true
+            if (action === 'approve') return perms.finance?.canApproveFinance === true
+            return false
+
+        case 'SETTINGS':
+            return perms.system?.manageSettings === true
+
+        case 'ROLES':
+        case 'USERS':
+            return perms.system?.manageRoles === true
+
+        case 'LOGS':
+            return perms.system?.viewLogs === true
+
+        case 'ANALYTICS':
+            return perms.system?.viewAnalytics === true
+
+        default:
+            return false
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Convenience helpers
+// ─────────────────────────────────────────────────────────────────────────────
 
 export async function hasAnyPermission(modules: ModuleName[], action: ActionType): Promise<boolean> {
     for (const module of modules) {

@@ -6,23 +6,34 @@ const { auth } = NextAuth(authConfig)
 
 export default auth((req) => {
     const { pathname } = req.nextUrl
-    const user = req.auth?.user as any
+    const user = req.auth?.user as {
+        role?: string;
+        tenantStatus?: string;
+        subscriptionEnd?: string | null;
+        planModules?: string[];
+        subscriptionTier?: string;
+        setupCompleted?: boolean;
+        tenantSlug?: string | null;
+    } | null
     const isLoggedIn = !!req.auth
-    const role = (user?.role as string) || ""
-    const email = (user?.email as string) || ""
-    const setupCompleted = user?.setupCompleted as boolean | undefined
-    const tenantStatus = (user?.tenantStatus as string) || "ACTIVE"
-    const subscriptionEnd = user?.subscriptionEnd
-        ? new Date(user.subscriptionEnd as string)
+    const role             = user?.role            || ""
+    const tenantStatus     = user?.tenantStatus    || "ACTIVE"
+    const subscriptionEnd  = user?.subscriptionEnd
+        ? new Date(user.subscriptionEnd)
         : null
-    const planModules = (user?.planModules as string[]) || []
-    const tier = (user?.subscriptionTier as string) || "STANDARD"
+    const planModules      = user?.planModules     || []
+    const tier             = user?.subscriptionTier || "STANDARD"
+    const setupCompleted   = user?.setupCompleted
+    // tenantSlug minted at login and stored in the JWT (see auth.ts + auth.config.ts)
+    const userTenantSlug   = user?.tenantSlug      ?? null
 
-    // Debug: log what the middleware actually sees
-    console.log("MIDDLEWARE TOKEN:", JSON.stringify({ isLoggedIn, role, email, pathname }))
+    // TARGET 1 (part A): Determine super roles EARLY — needed for isolation bypass below
+    const isGlobalSuper = role === "GLOBAL_SUPER_ADMIN"
+    const isSuperRole   = isGlobalSuper || role === "SUPER_ADMIN"
+    const isAdmin       = role === "ADMIN" || isSuperRole
 
     // ── Host-based tenant resolution ──────────────────────────────────────────
-    const hostname = req.headers.get("host") || ""
+    const hostname   = req.headers.get("host") || ""
     const baseDomain = process.env.NEXT_PUBLIC_BASE_DOMAIN || "localhost:3000"
     let tenantSlug: string | null = null
 
@@ -33,6 +44,25 @@ export default auth((req) => {
         }
     } else if (hostname !== baseDomain && !hostname.startsWith("localhost")) {
         tenantSlug = "CUSTOM_DOMAIN_HINT"
+    }
+
+    // ── TARGET 1: TENANT ISOLATION CHECK ─────────────────────────────────────
+    // If a subdomain slug is present and a user IS logged in, the user's own
+    // tenantSlug (minted at login) MUST match the slug they are trying to access.
+    // GLOBAL_SUPER_ADMIN operates with tenantId='system' and is the only bypass.
+    if (
+        tenantSlug &&
+        tenantSlug !== "CUSTOM_DOMAIN_HINT" &&
+        isLoggedIn &&
+        !isGlobalSuper      // GLOBAL_SUPER_ADMIN is the only cross-tenant role
+    ) {
+        if (!userTenantSlug || userTenantSlug !== tenantSlug) {
+            // Authenticated user belongs to a DIFFERENT tenant OR has no slug — hard stop.
+            console.warn(
+                `[Middleware] Tenant isolation violation: user slug="${userTenantSlug}" vs requested slug="${tenantSlug}" — redirecting to /unauthorized`
+            )
+            return NextResponse.redirect(new URL("/unauthorized", req.nextUrl))
+        }
     }
 
     // ── Super-login lockdown ───────────────────────────────────────────────────
@@ -46,16 +76,13 @@ export default auth((req) => {
     }
 
     // ── Super-admin routes ────────────────────────────────────────────────────
+    // TARGET 1 (part B): ONLY GLOBAL_SUPER_ADMIN may access /super-admin.
+    // Hardcoded email backdoor removed. SUPER_ADMIN is a tenant-level role
+    // and must NOT access the global SaaS operator panel.
     if (pathname.startsWith("/super-admin")) {
-        // HARDCODED BYPASS: if the token carries the super admin email or role, let them through
-        if (
-            email === "super@rearch.sa" ||
-            role === "GLOBAL_SUPER_ADMIN" ||
-            role === "SUPER_ADMIN"
-        ) {
+        if (isGlobalSuper) {
             return NextResponse.next()
         }
-        // Not authenticated or wrong role — bounce to super-login
         return NextResponse.redirect(new URL("/super-login?access=secure", req.nextUrl))
     }
 
@@ -71,12 +98,19 @@ export default auth((req) => {
     if (
         isLoggedIn &&
         !setupCompleted &&
-        role === "ADMIN" &&
+        !isSuperRole &&
         !pathname.startsWith("/setup") &&
-        !pathname.startsWith("/super")
+        !pathname.startsWith("/super") &&
+        !pathname.startsWith("/unauthorized")
     ) {
-        return NextResponse.redirect(new URL("/setup", req.nextUrl))
+        if (role === "ADMIN") {
+            return NextResponse.redirect(new URL("/setup", req.nextUrl))
+        } else {
+            // Ordinary employees cannot access the system until the admin completes setup
+            return NextResponse.redirect(new URL("/unauthorized?error=setup_pending", req.nextUrl))
+        }
     }
+
 
     // ── Protected tenant routes (/dashboard, /admin) ───────────────────────────
     if (pathname.startsWith("/dashboard") || pathname.startsWith("/admin")) {
@@ -103,27 +137,42 @@ export default auth((req) => {
         const checkModule = (mod: string) => {
             if (planModules.length > 0) return planModules.includes(mod)
             const tierMap: Record<string, string[]> = {
-                STANDARD: ["PROJECTS"],
+                STANDARD:     ["PROJECTS"],
                 PROFESSIONAL: ["PROJECTS", "FINANCE", "CRM"],
-                ENTERPRISE: ["PROJECTS", "FINANCE", "CRM", "HR", "GANTT", "ZATCA", "FILE_UPLOAD"],
+                ENTERPRISE:   ["PROJECTS", "FINANCE", "CRM", "HR", "GANTT", "ZATCA", "FILE_UPLOAD"],
             }
             return (tierMap[tier] || ["PROJECTS"]).includes(mod)
         }
 
         // RBAC — role checks
-        const isSuperRole = role === "GLOBAL_SUPER_ADMIN" || role === "SUPER_ADMIN"
-        if (pathname.startsWith("/admin/hr") && !["ADMIN", "HR", "MANAGER"].includes(role) && !isSuperRole) {
+        if (pathname.startsWith("/admin/hr") &&
+            !isAdmin && !["HR", "HR_MANAGER", "MANAGER"].includes(role)) {
             return NextResponse.redirect(new URL("/dashboard", req.nextUrl))
         }
-        if (pathname.startsWith("/admin/finance") && !["ADMIN", "FINANCE", "ACCOUNTANT", "CEO"].includes(role) && !isSuperRole) {
+        if (pathname.startsWith("/admin/finance") &&
+            !isAdmin && !["FINANCE", "ACCOUNTANT", "CEO"].includes(role)) {
             return NextResponse.redirect(new URL("/dashboard", req.nextUrl))
         }
-        if (pathname.startsWith("/admin/settings") && role !== "ADMIN" && !isSuperRole) {
+        if (pathname.startsWith("/admin/settings") && !isAdmin) {
+            return NextResponse.redirect(new URL("/dashboard", req.nextUrl))
+        }
+        if (pathname.startsWith("/admin/roles") && !isAdmin) {
+            return NextResponse.redirect(new URL("/dashboard", req.nextUrl))
+        }
+        if (pathname.startsWith("/admin/users") && !isAdmin) {
+            return NextResponse.redirect(new URL("/dashboard", req.nextUrl))
+        }
+        if (pathname.startsWith("/admin/supervision") &&
+            !isAdmin && !["PROJECT_MANAGER", "PM", "SITE_ENGINEER"].includes(role)) {
+            return NextResponse.redirect(new URL("/dashboard", req.nextUrl))
+        }
+        if (pathname.startsWith("/admin/crm") &&
+            !isAdmin && !["PROJECT_MANAGER", "PM"].includes(role)) {
             return NextResponse.redirect(new URL("/dashboard", req.nextUrl))
         }
 
         // RBAC — module gates (ADMIN and super roles bypass these)
-        const bypassModuleGates = role === "ADMIN" || isSuperRole
+        const bypassModuleGates = isAdmin
         if (!bypassModuleGates) {
             if (pathname.startsWith("/admin/hr") && !checkModule("HR")) {
                 return NextResponse.redirect(new URL("/dashboard?error=upgrade", req.nextUrl))

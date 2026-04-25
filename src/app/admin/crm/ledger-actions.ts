@@ -20,32 +20,60 @@ export async function getClientLedger(clientId: string) {
     if (!session?.user) throw new Error("Unauthorized")
     const user = session.user as any
 
-    const client = await (db as any).client.findUnique({
-        where: { id: clientId },
-        include: {
-            projects: {
-                include: {
-                    invoices: true
+    const tenantId = user.tenantId as string
+    const isAdmin =
+        user.role === 'GLOBAL_SUPER_ADMIN' ||
+        user.role === 'SUPER_ADMIN' ||
+        user.role === 'ADMIN' ||
+        user.role === 'ACCOUNTANT'
+
+    // Admin bypass: GSA/SUPER_ADMIN/ADMIN see all tenants; others scoped to their tenant
+    const clientWhere = isAdmin
+        ? { id: clientId }
+        : { id: clientId, tenantId }
+
+    let client: any
+    try {
+        client = await (db as any).client.findFirst({
+            where: clientWhere,
+            include: {
+                projects: {
+                    include: { invoices: true }
                 }
             }
-        }
-    })
+        })
+    } catch (error) {
+        console.error("🚨 LEDGER FETCH ERROR (client query):", error)
+        throw new Error("Database error fetching client ledger")
+    }
 
     if (!client) throw new Error("Client not found")
 
-    // RBAC: If not admin, check if user has access to any of this client's projects
-    const isAdmin = ['ADMIN', 'SUPER_ADMIN', 'ACCOUNTANT'].includes(user.role)
+    // Non-admin engineers: must be assigned to at least one of this client's projects
     if (!isAdmin) {
-        const userProjects = await db.project.count({
-            where: {
-                id: { in: client.projects.map((p: any) => p.id) },
-                engineers: { some: { id: user.id } }
-            }
-        })
-        if (userProjects === 0) throw new Error("Unauthorized to view this client's ledger")
+        try {
+            const userProjects = await (db as any).project.count({
+                where: {
+                    id: { in: client.projects.map((p: any) => p.id) },
+                    engineers: { some: { id: user.id } }
+                }
+            })
+            if (userProjects === 0) throw new Error("Unauthorized to view this client's ledger")
+        } catch (error) {
+            console.error("🚨 LEDGER FETCH ERROR (RBAC check):", error)
+            throw error
+        }
     }
 
-    const systemSettings = await db.systemSettings.findFirst()
+    let systemSettings: any = null
+    try {
+        systemSettings = await (db as any).companyProfile.findFirst(
+            tenantId && tenantId !== 'system' ? { where: { tenantId } } : undefined
+        )
+    } catch (error) {
+        console.error("🚨 LEDGER FETCH ERROR (settings query):", error)
+        // Non-fatal — continue without settings
+    }
 
     // 1. Gather all Invoices (Debits)
     // 2. Gather all Payments (Credits) -- Currently FTS ERP tracks "Paid Invoices" rather than distinct payment records for clients.
@@ -89,7 +117,7 @@ export async function getClientLedger(clientId: string) {
     })
 
     // 3. Sort Chronologically
-    entries.sort((a, b) => a.date.getTime() - b.date.getTime())
+    entries.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
 
     // 4. Calculate Running Balance
     let runningBalance = 0

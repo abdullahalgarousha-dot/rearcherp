@@ -25,7 +25,26 @@ import {
 } from "@/components/ui/select"
 import { formatRoleName } from "@/lib/role-utils"
 
-export function NewStaffDialog({ roles, managers, branches = [], children }: { roles: { id: string, name: string }[], managers: { id: string, name: string }[], branches?: any[], children?: React.ReactNode }) {
+interface DepartmentLookup {
+    id: string
+    value: string
+    labelEn: string
+    labelAr: string
+}
+
+export function NewStaffDialog({
+    roles,
+    managers,
+    branches = [],
+    departmentLookups = [],
+    children
+}: {
+    roles: { id: string, name: string }[]
+    managers: { id: string, name: string }[]
+    branches?: any[]
+    departmentLookups?: DepartmentLookup[]
+    children?: React.ReactNode
+}) {
     const [open, setOpen] = useState(false)
     const [loading, setLoading] = useState(false)
     const [branchId, setBranchId] = useState(branches[0]?.id || "")
@@ -36,7 +55,7 @@ export function NewStaffDialog({ roles, managers, branches = [], children }: { r
         setLoading(true)
         const formData = new FormData(e.currentTarget)
         // Ensure branchId is sent
-        if (branchId) formData.append("branchId", branchId)
+        if (branchId) formData.set("branchId", branchId)
 
         const res = await createStaff(formData)
         setLoading(false)
@@ -47,6 +66,8 @@ export function NewStaffDialog({ roles, managers, branches = [], children }: { r
             alert(res.error || "خطأ في إنشاء الموظف")
         }
     }
+
+    const hasDepartments = departmentLookups.length > 0
 
     return (
         <Dialog open={open} onOpenChange={setOpen}>
@@ -105,13 +126,38 @@ export function NewStaffDialog({ roles, managers, branches = [], children }: { r
                                     </SelectContent>
                                 </Select>
                             </div>
-                            <div className="grid gap-2">
-                                <Label htmlFor="department">القسم</Label>
-                                <Input id="department" name="department" required placeholder="مثال: الإدارة الهندسية" />
-                            </div>
                         </div>
 
                         <div className="grid grid-cols-2 gap-4">
+                            <div className="grid gap-2">
+                                <Label htmlFor="department">القسم / التخصص</Label>
+                                {hasDepartments ? (
+                                    <Select name="department" required>
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="اختر القسم" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {departmentLookups.map(d => (
+                                                <SelectItem key={d.id} value={d.value}>
+                                                    {d.labelAr} — {d.labelEn}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                ) : (
+                                    <Input
+                                        id="department"
+                                        name="department"
+                                        required
+                                        placeholder="مثال: الإدارة الهندسية"
+                                    />
+                                )}
+                                {!hasDepartments && (
+                                    <p className="text-[11px] text-slate-400">
+                                        أضف أقساماً من الإعدادات ← System Lookups ← ENGINEERING_DISCIPLINE
+                                    </p>
+                                )}
+                            </div>
                             <div className="grid gap-2">
                                 <Label htmlFor="directManagerId">المدير المباشر</Label>
                                 <Select name="directManagerId" defaultValue="NONE">
@@ -125,14 +171,19 @@ export function NewStaffDialog({ roles, managers, branches = [], children }: { r
                                         ))}
                                     </SelectContent>
                                 </Select>
-                            </div>
-                            <div className="grid gap-2">
-                                <Label htmlFor="password">كلمة المرور المؤقتة</Label>
-                                <Input id="password" name="password" type="password" required />
+                                {managers.length === 0 && (
+                                    <p className="text-[11px] text-slate-400">
+                                        لا يوجد موظفون مسجلون بعد
+                                    </p>
+                                )}
                             </div>
                         </div>
 
                         <div className="grid grid-cols-2 gap-4">
+                            <div className="grid gap-2">
+                                <Label htmlFor="password">كلمة المرور المؤقتة</Label>
+                                <Input id="password" name="password" type="password" required />
+                            </div>
                             <div className="grid gap-2">
                                 <Label htmlFor="salary">الراتب الأساسي</Label>
                                 <Input id="salary" name="salary" type="number" step="0.01" />

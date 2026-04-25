@@ -2,7 +2,7 @@ import { auth } from "@/auth"
 import { redirect } from "next/navigation"
 import { db } from "@/lib/db"
 import { ProjectForm } from "./project-form"
-import { getSystemSettings, getSystemLookups } from "@/app/actions/settings"
+import { getSystemSettings, getSystemLookups, getProjectTypes } from "@/app/actions/settings"
 import { getBranches } from "@/app/actions/branches"
 import { getAllClients } from "@/app/admin/crm/actions"
 import Link from "next/link"
@@ -30,7 +30,8 @@ export default async function NewProjectPage() {
     const allUsers = engineers.length > 0 ? engineers : await db.user.findMany({ where: { tenantId } })
 
     const settings = await getSystemSettings()
-    const projectTypes = await getSystemLookups('PROJECT_TYPE')
+    const projectTypes = await getProjectTypes()
+    const serviceTypes = await getSystemLookups('SERVICE_TYPE')
     const disciplines = await getSystemLookups('ENGINEERING_DISCIPLINE')
     const branches = await getBranches()
     const clients = await getAllClients()
@@ -60,6 +61,7 @@ export default async function NewProjectPage() {
                 engineers={allUsers}
                 systemVat={settings?.vatPercentage || 15}
                 projectTypes={projectTypes}
+                serviceTypes={serviceTypes}
                 disciplines={disciplines}
                 branches={branches}
                 clients={clients}

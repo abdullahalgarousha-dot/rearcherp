@@ -1,11 +1,19 @@
 import { PrismaClient } from '@prisma/client'
 import { seedRoles } from "./seed-roles"
+import { seedLookups } from "./seed-lookups"
+import { seedProjectTypes } from "./seed-project-types"
 
 const prisma = new PrismaClient()
 
 async function main() {
     // 0. Seed Roles (RBAC)
     await seedRoles()
+
+    // 0.1 Seed System Lookups
+    await seedLookups()
+
+    // 0.2 Seed Project Types
+    await seedProjectTypes()
 
     // 1. Seed Menu Links
     // Clear existing links to prevent duplicates (since ID strategy changed)

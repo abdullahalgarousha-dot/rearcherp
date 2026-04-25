@@ -8,89 +8,122 @@ export interface CEODashboardData {
         totalExpectedRevenue: number
         totalVatCollected: number
         totalInternalCost: number
+        totalExternalExpenses: number
         netProfitMargin: number
     }
-    projectMargins: Array<{
+    projectsSummary: Array<{
+        id: string
         name: string
-        revenue: number
-        cost: number
-        isProfitable: boolean
+        code: string
+        contractValue: number
+        externalExpenses: number
+        internalLaborCost: number
+        totalSpent: number
+        grossMargin: number
+        marginPercent: number
+    }>
+    receivables: Array<{
+        projectName: string
+        title: string
+        amount: number
+        dueDate: Date
+        status: string
+        type: 'INVOICE' | 'MILESTONE'
     }>
     revenueTrends: Array<{
         month: string
         revenue: number
-    }>
-    topEngineers: Array<{
-        name: string
-        hours: number
     }>
 }
 
 export async function getCEODashboardData(): Promise<CEODashboardData> {
     const session = await auth()
     const userRole = (session?.user as any)?.role
+    const tenantId = (session?.user as any)?.tenantId
 
-    if (userRole !== 'SUPER_ADMIN') {
-        throw new Error("Unauthorized: CEO Dashboard access is restricted to SUPER_ADMIN only.")
+    if (userRole !== 'SUPER_ADMIN' && userRole !== 'GLOBAL_SUPER_ADMIN') {
+        throw new Error("Unauthorized: CEO Dashboard access restricted.")
     }
 
     try {
-        // --- KPI: Expected Revenue & VAT ---
-        // Expected Revenue = Sum of all Project Contract Values
-        // VAT Collected = Sum of actual VAT amounts from all existing Invoices
         const projects = await db.project.findMany({
-            select: {
-                name: true,
-                contractValue: true,
-                createdAt: true,
-                timeLogs: {
-                    select: {
-                        hoursLogged: true,
-                        cost: true,
-                        user: {
-                            select: { name: true }
-                        }
-                    }
-                }
-            } as any // Bypass strict outdated typings
+            where: tenantId ? { tenantId } : {},
+            include: {
+                timeLogs: true,
+                expenses: true,
+                invoices: true,
+                milestones: true
+            }
         })
 
-        const invoices = await (db as any).invoice.findMany({
-            where: { status: { in: ['PAID', 'ISSUED'] } },
-            select: { vatAmount: true, date: true, baseAmount: true }
+        const globalInvoices = await (db as any).invoice.findMany({
+            where: tenantId ? { tenantId, status: { in: ['PAID', 'ISSUED'] } } : { status: { in: ['PAID', 'ISSUED'] } }
         })
 
-        const totalExpectedRevenue = projects.reduce((sum: number, p: any) => sum + p.contractValue, 0)
-        const totalVatCollected = invoices.reduce((sum: number, i: any) => sum + (i.vatAmount || 0), 0)
-
-        // --- KPI: Internal Cost (TimeLogs * Hourly Rate) ---
+        // 1. KPI Aggregates
+        let totalExpectedRevenue = 0
         let totalInternalCost = 0
-        const projectMarginsData = []
+        let totalExternalExpenses = 0
+        const projectsSummary: CEODashboardData['projectsSummary'] = []
+        const receivables: CEODashboardData['receivables'] = []
 
         for (const p of projects as any[]) {
-            let projectCost = 0
-            for (const log of p.timeLogs || []) {
-                // Use cost directly from the log (calculated in submitTimeLog)
-                projectCost += (log.cost || 0)
-            }
-            totalInternalCost += projectCost
+            totalExpectedRevenue += (p.contractValue || 0)
 
-            // Chart 1: Project Margins
-            projectMarginsData.push({
-                name: p.name.length > 20 ? p.name.substring(0, 20) + "..." : p.name,
-                revenue: p.contractValue,
-                cost: projectCost,
-                isProfitable: p.contractValue >= projectCost
+            const internalLaborCost = p.timeLogs.reduce((sum: number, log: any) => sum + (log.cost || 0), 0)
+            const externalExpenses = p.expenses.reduce((sum: number, exp: any) => sum + (exp.totalAmount || 0), 0)
+            
+            totalInternalCost += internalLaborCost
+            totalExternalExpenses += externalExpenses
+
+            const totalSpent = internalLaborCost + externalExpenses
+            const grossMargin = p.contractValue - totalSpent
+            const marginPercent = p.contractValue > 0 ? (grossMargin / p.contractValue) * 100 : 0
+
+            projectsSummary.push({
+                id: p.id,
+                name: p.name,
+                code: p.code,
+                contractValue: p.contractValue,
+                internalLaborCost,
+                externalExpenses,
+                totalSpent,
+                grossMargin,
+                marginPercent
+            })
+
+            // Collect Receivables
+            // From Invoices (Unpaid)
+            p.invoices.filter((i: any) => i.status !== 'PAID').forEach((i: any) => {
+                receivables.push({
+                    projectName: p.name,
+                    title: `Invoice #${i.invoiceNumber}`,
+                    amount: i.totalAmount,
+                    dueDate: i.dueDate || i.date,
+                    status: i.status,
+                    type: 'INVOICE' as const
+                })
+            })
+
+            // From Milestones (Pending)
+            p.milestones.filter((m: any) => m.status === 'PENDING').forEach((m: any) => {
+                receivables.push({
+                    projectName: p.name,
+                    title: m.title,
+                    amount: m.amount || 0,
+                    dueDate: m.dueDate,
+                    status: 'PENDING',
+                    type: 'MILESTONE' as const
+                })
             })
         }
 
-        // --- KPI: Profit Margin ---
-        let netProfitMargin = 0
-        if (totalExpectedRevenue > 0) {
-            netProfitMargin = ((totalExpectedRevenue - totalInternalCost) / totalExpectedRevenue) * 100
-        }
+        const totalVatCollected = globalInvoices.reduce((sum: number, i: any) => sum + (i.vatAmount || 0), 0)
+        const netProfitMargin = totalExpectedRevenue > 0 
+            ? ((totalExpectedRevenue - totalInternalCost - totalExternalExpenses) / totalExpectedRevenue) * 100 
+            : 0
 
-        // --- Chart 2: Revenue Trends (Last 6 Months based on PAID Invoices) ---
+        // 2. Revenue Trends
         const last6Months = Array.from({ length: 6 }, (_, i) => {
             const d = new Date();
             d.setMonth(d.getMonth() - i);
@@ -102,7 +135,7 @@ export async function getCEODashboardData(): Promise<CEODashboardData> {
         }).reverse();
 
         const revenueTrendsData = last6Months.map(m => {
-            const sum = invoices
+            const sum = globalInvoices
                 .filter((i: any) => {
                     const id = new Date(i.date)
                     return id.getMonth() === m.monthIndex && id.getFullYear() === m.year
@@ -111,38 +144,22 @@ export async function getCEODashboardData(): Promise<CEODashboardData> {
             return { month: m.label, revenue: sum }
         })
 
-        // --- Chart 3: Top Engineers (By Volume of Billable Hours) ---
-        // Aggregate timelogs globally per user
-        const timeLogs = await db.timeLog.findMany({
-            include: { user: { select: { name: true } } }
-        })
-
-        const engineerHoursMap: Record<string, number> = {}
-        for (const log of timeLogs as any[]) {
-            const name = log.user?.name || "Unknown Engineer"
-            if (!engineerHoursMap[name]) engineerHoursMap[name] = 0
-            engineerHoursMap[name] += (log.hoursLogged || 0)
-        }
-
-        const topEngineersData = Object.entries(engineerHoursMap)
-            .map(([name, hours]) => ({ name, hours }))
-            .sort((a, b) => b.hours - a.hours)
-            .slice(0, 5) // Top 5
-
         return {
             kpis: {
                 totalExpectedRevenue,
                 totalVatCollected,
                 totalInternalCost,
+                totalExternalExpenses,
                 netProfitMargin
             },
-            projectMargins: projectMarginsData,
+            projectsSummary,
+            receivables: receivables.sort((a, b) => a.dueDate.getTime() - b.dueDate.getTime()),
             revenueTrends: revenueTrendsData,
-            topEngineers: topEngineersData
         }
 
     } catch (error) {
         console.error("CEO Analytics Fetch Error:", error)
-        throw new Error("Failed to compile CEO Analytics.")
+        throw new Error("Failed to compile Project Financial Summary.")
     }
 }
+

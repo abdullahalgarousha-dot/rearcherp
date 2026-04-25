@@ -15,10 +15,12 @@ export async function createProject(formData: FormData) {
     }
 
     const tenantId = (session?.user as any).tenantId
+    if (!tenantId) return { error: "Unauthorized: No tenant ID found" }
 
     const name = formData.get("name") as string
     const brandId = formData.get("brandId") as string
     const branchId = formData.get("branchId") as string
+    const projectTypeId = formData.get("projectTypeId") as string
 
     // Client handling
     const clientName = formData.get("client") as string
@@ -53,22 +55,22 @@ export async function createProject(formData: FormData) {
         disciplines = []
     }
 
-    if (!name || !brandId || !clientName || isNaN(contractValue)) {
-        return { error: "Missing required fields" }
+    if (!name || !brandId || !clientName || !projectTypeId || isNaN(contractValue)) {
+        return { error: "Missing required fields (Project Name, Brand, Client, and Category are mandatory)" }
     }
 
     try {
         // Auto-Coding Logic
         const year = 2026
-        const brand = await (db as any).brand.findUnique({ where: { id: brandId } })
+        const brand = await db.brand.findUnique({ where: { id: brandId, tenantId } })
         if (!brand) return { error: "Brand not found" }
 
         // Use ShortName if available, else first 3 chars of EN name
         const brandCode = brand.shortName || brand.nameEn.substring(0, 3).toUpperCase()
 
-        // Get last sequence for this brand/year
-        const lastProject = await (db as any).project.findFirst({
-            where: { brandId, year },
+        // Get last sequence for this brand/year – strictly scoped to tenant
+        const lastProject = await db.project.findFirst({
+            where: { brandId, year, tenantId },
             orderBy: { sequence: 'desc' },
         });
 
@@ -129,6 +131,7 @@ export async function createProject(formData: FormData) {
                 driveFolderId,
                 driveLink,
                 driveSubFolderIds,
+                projectTypeId,
                 leadEngineerId: leadEngineerId || null,
                 disciplines: JSON.stringify(disciplines),
                 engineers: {
@@ -155,9 +158,13 @@ export async function updateProject(id: string, formData: FormData) {
         return { error: "Unauthorized: Requires Project edit permission" }
     }
 
+    const tenantId = (session?.user as any).tenantId
+    if (!tenantId) return { error: "Unauthorized: No tenant ID found" }
+
     try {
         const name = formData.get("name") as string
         const branchId = formData.get("branchId") as string
+        const projectTypeId = formData.get("projectTypeId") as string
 
         // Client Handling
         const clientName = formData.get("client") as string
@@ -187,8 +194,9 @@ export async function updateProject(id: string, formData: FormData) {
         const supervisionDuration = parseInt(formData.get("supervisionDuration") as string) || null
         const supervisionPackageValue = parseFloat(formData.get("supervisionPackageValue") as string) || null
 
-        await (db as any).project.update({
-            where: { id },
+        // We use updateMany to enforce the tenantId ownership check in the where clause
+        const updateResult = await (db as any).project.updateMany({
+            where: { id, tenantId },
             data: {
                 name,
                 clientId: crmClient.id,
@@ -201,7 +209,7 @@ export async function updateProject(id: string, formData: FormData) {
                 contractValue,
                 vatAmount,
                 contractDuration: supervisionDuration,
-
+                projectTypeId,
                 designValue,
                 supervisionPaymentType,
                 supervisionMonthlyValue,
@@ -209,11 +217,23 @@ export async function updateProject(id: string, formData: FormData) {
                 supervisionPackageValue,
                 leadEngineerId: leadEngineerId || null,
                 disciplines: JSON.stringify(disciplines),
-                engineers: {
-                    set: engineerIds.map((id: string) => ({ id }))
-                }
             }
         })
+
+        // If we also need to update relationships (engineers), we must do it separately
+        // but only if the user actually owns the project.
+        if (updateResult.count > 0) {
+            await (db as any).project.update({
+                where: { id },
+                data: {
+                    engineers: {
+                        set: engineerIds.map((id: string) => ({ id }))
+                    }
+                }
+            })
+        } else {
+            return { error: "Project not found or access denied" }
+        }
         return { success: true }
     } catch (e: any) {
         console.error(e)
@@ -226,12 +246,19 @@ export async function deleteProject(id: string) {
 
     // Auth Check
     const canDelete = await hasPermission('projects', 'delete')
-    if (!canDelete) {
-        return { error: "Unauthorized: Only Administrators can delete projects" }
-    }
+    const tenantId = (session?.user as any).tenantId
+    if (!tenantId) return { error: "Unauthorized: No tenant ID found" }
 
     try {
-        await (db as any).project.delete({ where: { id } })
+        // Enforce tenant isolation via deleteMany
+        const deleteResult = await (db as any).project.deleteMany({
+            where: { id, tenantId }
+        })
+
+        if (deleteResult.count === 0) {
+            return { error: "Project not found or access denied" }
+        }
+
         return { success: true }
     } catch (e: any) {
         console.error(e)

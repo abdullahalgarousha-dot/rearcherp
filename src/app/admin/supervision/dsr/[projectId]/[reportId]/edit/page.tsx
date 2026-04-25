@@ -17,8 +17,11 @@ export default async function EditDSRPage({ params }: { params: Promise<{ projec
         redirect('/')
     }
 
-    const project = await db.project.findUnique({
-        where: { id: projectId },
+    const tenantId = (session?.user as any)?.tenantId
+    if (!tenantId) redirect('/login')
+
+    const project = await db.project.findFirst({
+        where: { id: projectId, tenantId },
         include: {
             brand: true,
             engineers: true,
@@ -30,29 +33,15 @@ export default async function EditDSRPage({ params }: { params: Promise<{ projec
 
     if (!project) notFound()
 
-    const report = await db.dailyReport.findUnique({
-        where: { id: reportId },
-        include: {
-            project: true, // Need project for logic if needed
-            // No need for deep relations as JSON fields hold the data, 
-            // but we might want attendees relation if we prefer that over JSON?
-            // DSRForm uses JSON state mostly. 
-            // Let's rely on the JSON fields which are now primary.
-        }
+    const report = await db.dailyReport.findFirst({
+        where: { id: reportId, tenantId },
+        include: { project: true }
     })
 
     if (!report) notFound()
 
-    // Check if editable
-    if (report.status === 'APPROVED' && !canApprove) {
-        // Only Approvers can edit Approved reports (if logic allows, currently workflows usually lock approved stuff)
-        // But for safe side, redirect if approved? 
-        // User request: "PM opens the report. They must be able to EDIT any field".
-        // PM usually edits BEFORE approval.
-        // Let's assume PENDING only for now unless specified.
-    }
-
     const contractors = await db.contractor.findMany({
+        where: { tenantId },
         orderBy: { companyName: 'asc' }
     })
 

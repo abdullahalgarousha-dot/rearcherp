@@ -25,8 +25,7 @@ import { cn } from "@/lib/utils"
 
 interface HRDashboardViewProps {
     totalStaff: number
-    jeddahStaff: number
-    cairoStaff: number
+    branchStats: { id: string; name: string; count: number }[]
     pendingLeaves: number
     financials: {
         totalSAR: number
@@ -42,6 +41,7 @@ interface HRDashboardViewProps {
     roles: { id: string, name: string }[]
     managers: { id: string, name: string }[]
     branches: any[]
+    departmentLookups: { id: string; value: string; labelEn: string; labelAr: string }[]
 }
 
 const container = {
@@ -61,15 +61,15 @@ const item = {
 
 export function HRDashboardView({
     totalStaff,
-    jeddahStaff,
-    cairoStaff,
+    branchStats,
     pendingLeaves,
     financials,
     alerts,
     staff,
     roles,
     managers,
-    branches
+    branches,
+    departmentLookups
 }: HRDashboardViewProps) {
 
     return (
@@ -89,7 +89,7 @@ export function HRDashboardView({
                     <p className="text-slate-500 font-medium">Manage your team, track expiration dates, and oversee payroll.</p>
                 </div>
                 <div className="flex gap-3">
-                    <NewStaffDialog roles={roles} managers={managers} branches={branches} />
+                    <NewStaffDialog roles={roles} managers={managers} branches={branches} departmentLookups={departmentLookups} />
                 </div>
             </motion.div>
 
@@ -108,29 +108,30 @@ export function HRDashboardView({
                     </CardContent>
                 </Card>
 
-                {/* Jeddah Stats */}
-                <Card className="bg-white/60 backdrop-blur-xl border-slate-200/60 shadow-sm hover:shadow-md transition-all">
-                    <CardHeader className="flex flex-row items-center justify-between pb-2">
-                        <CardTitle className="text-sm font-medium text-slate-500">Jeddah Team</CardTitle>
-                        <div className="bg-emerald-100 px-2 py-0.5 rounded text-[10px] font-bold text-emerald-700">SAR</div>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold text-slate-900">{jeddahStaff}</div>
-                        <p className="text-xs text-muted-foreground mt-1">Payroll: {financials.totalSAR.toLocaleString()} SAR</p>
-                    </CardContent>
-                </Card>
-
-                {/* Cairo Stats */}
-                <Card className="bg-white/60 backdrop-blur-xl border-slate-200/60 shadow-sm hover:shadow-md transition-all">
-                    <CardHeader className="flex flex-row items-center justify-between pb-2">
-                        <CardTitle className="text-sm font-medium text-slate-500">Cairo Team</CardTitle>
-                        <div className="bg-amber-100 px-2 py-0.5 rounded text-[10px] font-bold text-amber-700">EGP</div>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold text-slate-900">{cairoStaff}</div>
-                        <p className="text-xs text-muted-foreground mt-1">Payroll: {financials.totalEGP.toLocaleString()} EGP</p>
-                    </CardContent>
-                </Card>
+                {/* Dynamic Branch Stats (first 2 branches) */}
+                {branchStats.length === 0 ? (
+                    <Card className="bg-white/60 backdrop-blur-xl border-slate-200/60 shadow-sm col-span-2">
+                        <CardHeader className="pb-2">
+                            <CardTitle className="text-sm font-medium text-slate-500">Branches</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            <p className="text-xs text-slate-400 italic">No branches defined</p>
+                        </CardContent>
+                    </Card>
+                ) : (
+                    branchStats.slice(0, 2).map((b, idx) => (
+                        <Card key={b.id} className="bg-white/60 backdrop-blur-xl border-slate-200/60 shadow-sm hover:shadow-md transition-all">
+                            <CardHeader className="flex flex-row items-center justify-between pb-2">
+                                <CardTitle className="text-sm font-medium text-slate-500">{b.name} Team</CardTitle>
+                                <MapPin className={cn("h-4 w-4", idx === 0 ? "text-emerald-500" : "text-amber-500")} />
+                            </CardHeader>
+                            <CardContent>
+                                <div className="text-2xl font-bold text-slate-900">{b.count}</div>
+                                <p className="text-xs text-muted-foreground mt-1">Staff Members</p>
+                            </CardContent>
+                        </Card>
+                    ))
+                )}
 
                 {/* Consolidated Payroll */}
                 <Card className="bg-slate-900 text-white border-none shadow-xl relative overflow-hidden">
@@ -235,7 +236,7 @@ export function HRDashboardView({
 
                             <div className="relative z-10 w-full">
                                 <div className={cn("absolute -top-6 -right-6 px-4 py-1 rounded-bl-2xl text-[10px] font-bold text-white shadow-sm",
-                                    employee.branch === 'Cairo' ? "bg-amber-500" : "bg-indigo-600"
+                                    branchStats.findIndex(b => b.name === employee.branch) === 1 ? "bg-amber-500" : "bg-indigo-600"
                                 )}>
                                     {employee.branch || "Unassigned"}
                                 </div>

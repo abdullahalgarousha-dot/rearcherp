@@ -5,36 +5,32 @@ import { Badge } from "@/components/ui/badge"
 import { Building2, Sparkles, Globe, Hash, ShieldCheck, Mail, Phone, MapPin } from "lucide-react"
 import { BrandAddDialog, BrandEditDialog, BrandDeleteDialog, SetDefaultBrandButton } from "@/components/brands/brand-crud-dialogs"
 
+// Force dynamic rendering — never serve a cached snapshot after mutations
+export const dynamic = 'force-dynamic'
+
 export default async function BrandsCRUDPage() {
     const session = await auth()
     const userRole = (session?.user as any)?.role
-    const tenantId = (session?.user as any)?.tenantId
+    const tenantId = (session?.user as any)?.tenantId as string
 
-    if (!['ADMIN', 'GLOBAL_SUPER_ADMIN'].includes(userRole)) {
+    if (!['GLOBAL_SUPER_ADMIN', 'SUPER_ADMIN', 'ADMIN'].includes(userRole)) {
         redirect('/dashboard')
     }
 
-    // If super admin is accessing this page directly (tenantId="system"), they
-    // don't have a real tenant — show a helpful redirect hint instead.
-    if (!tenantId || tenantId === 'system') {
-        return (
-            <div className="flex items-center justify-center min-h-[60vh]">
-                <div className="text-center space-y-3 max-w-sm">
-                    <p className="text-2xl font-black text-slate-800">No Tenant Context</p>
-                    <p className="text-slate-500 text-sm">
-                        You are logged in as the Global Super Admin. To manage brands, log in as a
-                        tenant admin via the Super Admin dashboard.
-                    </p>
-                </div>
-            </div>
-        )
-    }
+    const isGSA = userRole === 'GLOBAL_SUPER_ADMIN'
+    const isAdmin = isGSA || userRole === 'SUPER_ADMIN' || userRole === 'ADMIN'
 
-    // Fetch all brands for this tenant
-    const brands = await db.brand.findMany({
-        where: { tenantId },
-        orderBy: { createdAt: 'asc' }
+    // Admin bypass: GSA sees every brand in the DB to audit/delete duplicates.
+    // Tenant admins are scoped to their own tenant.
+    const brandWhere = isAdmin && isGSA ? {} : { tenantId }
+
+    const brands = await (db as any).brand.findMany({
+        where: brandWhere,
+        orderBy: [{ tenantId: 'asc' }, { createdAt: 'asc' }],
     })
+
+    // Tenant context available for CRUD dialogs (GSA has none — hide add/edit)
+    const activeTenantId = (!tenantId || tenantId === 'system') ? null : tenantId
 
     return (
         <div className="space-y-8 pb-20">
@@ -58,9 +54,20 @@ export default async function BrandsCRUDPage() {
                             Manage multiple corporate identities, prefixes, and ZATCA compliance settings for your organization.
                         </p>
                     </div>
-                    <BrandAddDialog tenantId={tenantId} />
+                    {activeTenantId
+                        ? <BrandAddDialog tenantId={activeTenantId} />
+                        : <span className="text-xs text-white/40 font-medium italic">View-only — log in as a tenant admin to create brands</span>
+                    }
                 </div>
             </div>
+
+            {/* GSA audit banner */}
+            {isGSA && (
+                <div className="bg-amber-50 border border-amber-200 rounded-2xl px-5 py-3 text-sm text-amber-800 font-medium">
+                    Showing <span className="font-black">{brands.length}</span> brand{brands.length !== 1 ? 's' : ''} across all tenants.
+                    You can delete duplicates below. To create or edit brands, log in as a tenant admin.
+                </div>
+            )}
 
             {/* Brand Grid */}
             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
@@ -80,7 +87,8 @@ export default async function BrandsCRUDPage() {
                                 </div>
                                 <div className="flex flex-col items-end gap-2">
                                     <div className="flex items-center gap-2">
-                                        <BrandEditDialog brand={brand} tenantId={tenantId} />
+                                        {/* GSA passes brand's own tenantId so updateBrand never overwrites it */}
+                                        <BrandEditDialog brand={brand} tenantId={brand.tenantId} />
                                         <BrandDeleteDialog brandId={brand.id} name={brand.nameEn} />
                                     </div>
                                     <Badge variant="outline" className="rounded-lg font-black border-slate-200 bg-slate-50 text-slate-500">
@@ -103,10 +111,17 @@ export default async function BrandsCRUDPage() {
                                     <ShieldCheck className="h-4 w-4 text-slate-300" />
                                     <span>VAT: {brand.taxNumber || '---'}</span>
                                 </div>
+                                {/* Show tenantId for GSA to identify which tenant owns each brand */}
+                                {isGSA && (
+                                    <div className="flex items-center gap-3 text-xs text-slate-400 font-medium">
+                                        <span className="bg-slate-100 rounded px-2 py-0.5 font-mono">{brand.tenantId}</span>
+                                    </div>
+                                )}
                             </div>
 
                             <div className="pt-4 mt-auto border-t border-slate-50 flex items-center justify-between">
-                                <SetDefaultBrandButton brandId={brand.id} tenantId={tenantId} isDefault={brand.isDefault} />
+                                {/* Pass brand's own tenantId so setDefaultBrand scopes correctly */}
+                                <SetDefaultBrandButton brandId={brand.id} tenantId={brand.tenantId} isDefault={brand.isDefault} />
                             </div>
                         </div>
                     </div>
@@ -117,7 +132,7 @@ export default async function BrandsCRUDPage() {
                         <Building2 className="h-16 w-16 text-slate-300 mx-auto mb-4" />
                         <h3 className="text-xl font-black text-slate-800">No Entities Configured</h3>
                         <p className="text-slate-500 mb-8 max-w-xs mx-auto">Start by adding your first brand or branch to enable ID generation and compliance.</p>
-                        <BrandAddDialog tenantId={tenantId} />
+                        {activeTenantId && <BrandAddDialog tenantId={activeTenantId} />}
                     </div>
                 )}
             </div>

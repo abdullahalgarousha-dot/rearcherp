@@ -16,6 +16,7 @@ export const authConfig = {
             if (user) {
                 token.role = (user as any).role
                 token.tenantId = (user as any).tenantId
+                token.tenantSlug = (user as any).tenantSlug ?? null
                 token.subscriptionTier = (user as any).subscriptionTier
                 token.planId = (user as any).planId
                 token.planName = (user as any).planName
@@ -35,6 +36,7 @@ export const authConfig = {
             if (token && session.user) {
                 (session.user as any).role = token.role
                 ;(session.user as any).tenantId = token.tenantId
+                ;(session.user as any).tenantSlug = token.tenantSlug ?? null
                 ;(session.user as any).subscriptionTier = token.subscriptionTier
                 ;(session.user as any).planId = token.planId
                 ;(session.user as any).planName = token.planName

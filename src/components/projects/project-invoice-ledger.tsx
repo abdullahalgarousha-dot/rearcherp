@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Plus, FileText, ExternalLink, CheckCircle2, Clock, AlertTriangle, XCircle, DollarSign, Loader2, Trash2 } from "lucide-react"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { format } from "date-fns"
 import { toast } from "sonner"
 import { createProjectInvoice, updateInvoiceStatus, deleteInvoice } from "@/app/admin/projects/[projectId]/finance-actions"
@@ -25,11 +26,17 @@ interface Props {
     invoices: any[]
     contractValue: number
     canEdit: boolean
+    serviceType?: string
 }
 
-export function ProjectInvoiceLedger({ projectId, invoices, contractValue, canEdit }: Props) {
+export function ProjectInvoiceLedger({ projectId, invoices, contractValue, canEdit, serviceType }: Props) {
     const [open, setOpen] = useState(false)
     const [loading, setLoading] = useState(false)
+    const [invoiceType, setInvoiceType] = useState(() => {
+        if (serviceType === 'DESIGN') return 'DESIGN'
+        if (serviceType === 'SUPERVISION') return 'SUPERVISION'
+        return 'GENERAL'
+    })
     const router = useRouter()
 
     const totalBilled = invoices.reduce((s, i) => s + i.totalAmount, 0)
@@ -37,16 +44,21 @@ export function ProjectInvoiceLedger({ projectId, invoices, contractValue, canEd
     const totalPending = invoices.filter(i => i.status === 'ISSUED').reduce((s, i) => s + i.totalAmount, 0)
     const billingPercent = contractValue > 0 ? Math.min((totalBilled / contractValue) * 100, 100) : 0
 
+    const isBoth = serviceType === 'BOTH'
+    const designInvoices = invoices.filter(i => i.invoiceType === 'DESIGN')
+    const supervisionInvoices = invoices.filter(i => i.invoiceType === 'SUPERVISION')
+    const generalInvoices = invoices.filter(i => !i.invoiceType || i.invoiceType === 'GENERAL')
+
     async function handleCreate(e: React.FormEvent<HTMLFormElement>) {
         e.preventDefault()
         setLoading(true)
         const fd = new FormData(e.currentTarget)
         const res = await createProjectInvoice(projectId, {
-            invoiceNumber: fd.get("invoiceNumber") as string,
             description: fd.get("description") as string,
             baseAmount: parseFloat(fd.get("baseAmount") as string),
             dueDate: fd.get("dueDate") as string,
             date: fd.get("date") as string,
+            invoiceType,
         })
         setLoading(false)
         if (res.success) {
@@ -93,6 +105,41 @@ export function ProjectInvoiceLedger({ projectId, invoices, contractValue, canEd
                 ))}
             </div>
 
+            {/* Split ledger — Design / Supervision / General */}
+            {isBoth && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {[
+                        { label: "Design Ledger", invs: designInvoices, accent: "text-indigo-700", bg: "bg-indigo-50" },
+                        { label: "Supervision Ledger", invs: supervisionInvoices, accent: "text-amber-700", bg: "bg-amber-50" },
+                        { label: "General Ledger", invs: generalInvoices, accent: "text-slate-700", bg: "bg-slate-50" },
+                    ].map(({ label, invs, accent, bg }) => {
+                        const billed = invs.reduce((s, i) => s + i.totalAmount, 0)
+                        const collected = invs.filter(i => i.status === 'PAID').reduce((s, i) => s + i.totalAmount, 0)
+                        const outstanding = invs.filter(i => i.status !== 'PAID').reduce((s, i) => s + i.totalAmount, 0)
+                        return (
+                            <Card key={label} className={`border-none shadow-sm ${bg}`}>
+                                <CardContent className="p-4">
+                                    <p className={`text-xs font-black uppercase mb-3 ${accent}`}>{label}</p>
+                                    <div className="grid grid-cols-3 gap-2 text-center">
+                                        {[
+                                            { k: "Billed", v: billed, c: accent },
+                                            { k: "Collected", v: collected, c: "text-emerald-700" },
+                                            { k: "Outstanding", v: outstanding, c: "text-rose-600" },
+                                        ].map(({ k, v, c }) => (
+                                            <div key={k}>
+                                                <p className="text-[10px] font-bold uppercase text-slate-400">{k}</p>
+                                                <p className={`text-base font-black ${c}`}>{v.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
+                                                <p className="text-[9px] text-muted-foreground">SAR</p>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </CardContent>
+                            </Card>
+                        )
+                    })}
+                </div>
+            )}
+
             {/* Billing Progress */}
             <div className="bg-white rounded-xl p-4 border border-slate-100 shadow-sm">
                 <div className="flex justify-between mb-2">
@@ -125,15 +172,25 @@ export function ProjectInvoiceLedger({ projectId, invoices, contractValue, canEd
                                 </DialogTitle>
                             </DialogHeader>
                             <form onSubmit={handleCreate} className="space-y-4 pt-2">
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div className="space-y-1.5">
-                                        <Label>Invoice Number</Label>
-                                        <Input name="invoiceNumber" placeholder="INV-001" required />
-                                    </div>
-                                    <div className="space-y-1.5">
-                                        <Label>Invoice Date</Label>
-                                        <Input name="date" type="date" defaultValue={new Date().toISOString().split('T')[0]} required />
-                                    </div>
+                                <p className="text-xs text-muted-foreground bg-slate-50 rounded-lg px-3 py-2 border border-slate-100">
+                                    Invoice number will be auto-generated sequentially per brand (e.g. FTS-INV-0001).
+                                </p>
+                                <div className="space-y-1.5">
+                                    <Label>Invoice Date</Label>
+                                    <Input name="date" type="date" defaultValue={new Date().toISOString().split('T')[0]} required />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <Label>Invoice Type</Label>
+                                    <Select value={invoiceType} onValueChange={setInvoiceType}>
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="Select type" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="DESIGN">Design</SelectItem>
+                                            <SelectItem value="SUPERVISION">Supervision</SelectItem>
+                                            <SelectItem value="GENERAL">General</SelectItem>
+                                        </SelectContent>
+                                    </Select>
                                 </div>
                                 <div className="space-y-1.5">
                                     <Label>Description</Label>
@@ -172,7 +229,7 @@ export function ProjectInvoiceLedger({ projectId, invoices, contractValue, canEd
                         <table className="w-full text-sm">
                             <thead className="bg-slate-50 border-b border-slate-100">
                                 <tr>
-                                    {["Invoice #", "Description", "Amount (SAR)", "VAT (SAR)", "Total (SAR)", "Date", "Due Date", "Status", ""].map(h => (
+                                    {["Invoice #", "Type", "Description", "Amount (SAR)", "VAT (SAR)", "Total (SAR)", "Date", "Due Date", "Status", ""].map(h => (
                                         <th key={h} className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase">{h}</th>
                                     ))}
                                 </tr>
@@ -185,6 +242,11 @@ export function ProjectInvoiceLedger({ projectId, invoices, contractValue, canEd
                                     return (
                                         <tr key={inv.id} className="hover:bg-slate-50/50 transition-colors">
                                             <td className="px-4 py-3 font-mono font-bold text-slate-900">{inv.invoiceNumber}</td>
+                                            <td className="px-4 py-3">
+                                                <Badge variant="outline" className={`text-xs ${inv.invoiceType === 'DESIGN' ? 'border-indigo-200 bg-indigo-50 text-indigo-700' : inv.invoiceType === 'SUPERVISION' ? 'border-amber-200 bg-amber-50 text-amber-700' : 'border-slate-200 text-slate-500'}`}>
+                                                    {inv.invoiceType || 'GENERAL'}
+                                                </Badge>
+                                            </td>
                                             <td className="px-4 py-3 text-slate-600 max-w-[200px] truncate">{inv.description || "—"}</td>
                                             <td className="px-4 py-3 font-medium">{inv.baseAmount.toLocaleString()}</td>
                                             <td className="px-4 py-3 text-amber-600">{inv.vatAmount.toLocaleString()}</td>

@@ -4,7 +4,6 @@ import { db } from "@/lib/db"
 import { BackButton } from "@/components/ui/back-button"
 import { PDFExportButton } from "@/components/supervision/pdf-export-button"
 import { format } from "date-fns"
-import { Separator } from "@/components/ui/separator"
 import { generateZatcaQR } from "@/lib/zatca"
 import { ZatcaQR } from "@/components/finance/zatca-qr"
 
@@ -16,190 +15,223 @@ export default async function InvoicePage({ params }: { params: Promise<{ invoic
 
     const { invoiceId } = await params
 
-    const invoice = await (db as any).invoice.findUnique({
-        where: { id: invoiceId },
+    const user = session?.user as any
+    const tenantId = user?.tenantId
+    const isGlobalAdmin = user?.role === 'GLOBAL_SUPER_ADMIN'
+
+    const invoice = await db.invoice.findFirst({
+        where: isGlobalAdmin ? { id: invoiceId } : { id: invoiceId, tenantId },
         include: {
+            items: true,
             project: {
-                include: { brand: true }
+                include: { client: true, brand: true }
             }
         }
     })
 
+
     if (!invoice) return <div>Invoice not found</div>
 
     const { project } = invoice
-    const { brand } = project
+    const { client } = project || {}
 
-    // Calculate Totals (Safely use schema fields)
-    const baseAmount = invoice.baseAmount || 0
-    const vatAmount = invoice.vatAmount || 0
-    const totalWithVat = invoice.totalAmount || (baseAmount + vatAmount)
+    // Seller Info (Pull directly from Brand/Entity context)
+    const brand = project?.brand as any
+
+    const sellerName = brand?.fullName || brand?.nameEn || "غير متوفر"
+    const sellerVat = brand?.vatNumber || brand?.taxNumber || "غير متوفر"
+    const sellerCr = brand?.crNumber || "غير متوفر"
+    const sellerAddress = brand?.nationalAddress || "عنوان غير متوفر"
+    const sellerLogo = brand?.logoUrl || null
+
+    const buyerName = client?.name || project?.legacyClientName || "غير متوفر"
+    const buyerAddress = client?.address || project?.legacyClientAddr || "عنوان غير متوفر"
+    const buyerVat = client?.taxNumber || project?.legacyClientVat || "غير متوفر"
+    const buyerCr = client?.crNumber || "غير متوفر"
+
+    // Calculate Totals Safely
+    const itemsTotal = (invoice.items as any[]).reduce((sum, item) => sum + (Number(item.quantity) * Number(item.unitPrice)), 0)
+    let actualDiscountSAR = 0
+    if (invoice.discountType === "PERCENTAGE") {
+        actualDiscountSAR = itemsTotal * (Number(invoice.discountValue) / 100)
+    } else {
+        actualDiscountSAR = Number(invoice.discountValue) || 0
+    }
+
+    const subTotalDisplay = itemsTotal > 0 ? itemsTotal : (invoice.subTotal || invoice.baseAmount || 0)
+    const vatAmount = invoice.taxAmount || invoice.vatAmount || (subTotalDisplay - actualDiscountSAR) * 0.15
+    const grandTotal = invoice.grandTotal || invoice.totalAmount || (subTotalDisplay - actualDiscountSAR + vatAmount)
 
     // Generate ZATCA QR Data
     const qrData = generateZatcaQR(
-        brand.fullName || brand.nameEn,
-        brand.vatNumber || "",
+        sellerName,
+        sellerVat !== "غير متوفر" ? sellerVat : "",
         new Date(invoice.date).toISOString(),
-        totalWithVat.toFixed(2),
+        grandTotal.toFixed(2),
         vatAmount.toFixed(2)
     )
 
+    const titleText = invoice.invoiceType === "SIMPLIFIED" ? "فاتورة ضريبية مبسطة" : "فاتورة ضريبية";
+
     return (
-        <div className="min-h-screen bg-gray-50/50 pb-20 print:bg-white print:pb-0 font-sans rtl:text-right">
+        <div className="min-h-screen bg-gray-50/50 pb-20 print:bg-white print:pb-0 font-sans rtl:text-right" dir="rtl">
             {/* Top Bar - Hidden in Print */}
-            <div className="flex justify-between items-center p-6 md:p-8 max-w-5xl mx-auto no-print">
+            <div className="flex justify-between items-center p-6 md:p-8 max-w-5xl mx-auto print:hidden">
                 <div className="flex items-center gap-4">
                     <BackButton />
-                    <h1 className="text-2xl font-bold tracking-tight text-primary">تفاصيل الفاتورة الضريبية</h1>
+                    <h1 className="text-2xl font-bold tracking-tight text-primary">عرض الفاتورة</h1>
                 </div>
                 <PDFExportButton elementId="invoice-content" fileName={`Invoice-${invoice.invoiceNumber || invoice.id}`} />
             </div>
 
-            {/* A4 Invoice Container - Updated Classes */}
-            <div id="invoice-content" className="invoice-container max-w-[210mm] mx-auto bg-white p-8 md:p-12 shadow-lg my-8 rounded-lg border border-gray-200 text-slate-900 relative">
+            {/* A4 Invoice Container */}
+            <div id="invoice-content" className="invoice-container max-w-[210mm] mx-auto bg-white p-8 md:p-12 shadow-lg my-8 rounded-lg border border-gray-200 text-slate-900 relative print:shadow-none print:my-0 print:border-none print:p-0">
 
-                {/* 1. Header & Branding */}
-                <header className="flex justify-between items-start mb-8 pb-6 border-b-4 border-slate-900">
-                    {/* Left: Invoice Info */}
-                    <div className="w-1/2 space-y-2 text-left rtl:text-right">
-                        <div>
-                            <span className="block text-[9px] font-black text-slate-400 uppercase tracking-widest">Tax Invoice | فاتورة ضريبية</span>
-                            <h2 className="text-2xl font-black text-slate-900 leading-tight">{invoice.invoiceNumber}</h2>
-                        </div>
-                        <div className="flex gap-8">
-                            <div>
-                                <span className="block text-[9px] font-black text-slate-400 uppercase tracking-widest">Issue Date | التاريخ</span>
-                                <p className="text-sm font-bold text-slate-700">{format(new Date(invoice.date), 'dd/MM/yyyy')}</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Right: Branding */}
-                    <div className="w-1/2 flex flex-col items-end text-right">
-                        {brand.logoUrl && (
+                {/* 1. Header Section */}
+                <header className="flex justify-between items-start mb-8 pb-6 border-b-2 border-slate-900">
+                    <div className="space-y-4 w-1/2">
+                        {sellerLogo && (
                             // eslint-disable-next-line @next/next/no-img-element
-                            <img src={brand.logoUrl} alt="Brand Logo" className="h-16 w-auto object-contain mb-2" />
+                            <img src={sellerLogo} alt="Logo" className="h-16 w-auto object-contain" />
                         )}
-                        <h2 className="text-lg font-bold text-slate-800">{brand.fullName}</h2>
-                        <div className="text-[10px] text-slate-500 uppercase tracking-widest font-semibold flex flex-col gap-0.5">
-                            <p>CR: {brand.crNumber} | س.ت: {brand.crNumber}</p>
-                            <p>VAT: {brand.vatNumber} | ضريبي: {brand.vatNumber}</p>
-                        </div>
-                    </div>
-                </header>
-
-                {/* 2. Client & QR Info */}
-                <section className="grid grid-cols-2 gap-12 mb-12">
-                    <div className="space-y-4">
-                        <div className="space-y-1">
-                            <span className="text-[10px] font-bold text-primary uppercase tracking-tight">Bill To | فاتورة إلى</span>
-                            <h3 className="text-lg font-bold text-slate-900">
-                                {project.client?.name || project.legacyClientName || "Client"}
-                            </h3>
-                        </div>
-                        <div className="text-sm text-slate-600 leading-relaxed font-medium space-y-1">
-                            <p>{project.client?.address || project.legacyClientAddr || "Address not provided"}</p>
-                            {(project.client?.taxNumber || project.legacyClientVat) && (
-                                <p className="text-xs text-slate-400">
-                                    VAT: {project.client?.taxNumber || project.legacyClientVat}
-                                </p>
-                            )}
+                        <div>
+                            <h2 className="text-2xl font-black text-slate-900 leading-tight">{titleText}</h2>
+                            <p className="text-sm text-slate-500 font-bold uppercase tracking-widest mt-1">Tax Invoice</p>
                         </div>
                     </div>
 
-                    <div className="flex justify-end items-start gap-6">
-                        <div className="text-right space-y-2">
-                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tight">Scan Verify | تحقق</span>
-                            <p className="text-[10px] text-slate-400 leading-tight italic max-w-[120px]">
-                                ZATCA Compliant Electronic Invoice
-                            </p>
+                    <div className="w-1/2 flex justify-end gap-6 items-start">
+                        <div className="text-left space-y-2" dir="ltr">
+                            <div>
+                                <span className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest">Invoice Number | رقم الفاتورة</span>
+                                <p className="text-sm font-bold text-slate-900">{invoice.invoiceNumber}</p>
+                            </div>
+                            <div>
+                                <span className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest">Issue Date | تاريخ الإصدار</span>
+                                <p className="text-sm font-bold text-slate-900">{format(new Date(invoice.date), 'dd/MM/yyyy')}</p>
+                            </div>
                         </div>
                         <ZatcaQR value={qrData} size={100} />
                     </div>
-                </section>
+                </header>
 
-                <Separator className="bg-slate-100 mb-10 no-print" />
-
-                {/* 3. Description List */}
-                <section className="mb-12 flex-grow min-h-[50mm]">
-                    <div className="bg-slate-50 p-3 rounded-lg flex justify-between items-center text-[10px] font-bold text-slate-500 uppercase tracking-widest px-6 mb-6">
-                        <span>Description | البيان</span>
-                        <span>Amount | المبلغ</span>
+                {/* 2. Parties Section */}
+                <section className="grid grid-cols-2 gap-8 mb-10">
+                    {/* Seller */}
+                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                        <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest mb-3 border-b pb-2">معلومات البائع | Seller Info</h3>
+                        <div className="space-y-2 text-sm">
+                            <p className="font-bold text-slate-900">{sellerName}</p>
+                            <p className="text-slate-600 leading-relaxed font-medium">{sellerAddress}</p>
+                            <p className="text-slate-700 font-semibold text-xs mt-2">
+                                <span className="text-slate-400 font-bold ml-1">الرقم الضريبي VAT:</span> {sellerVat}
+                            </p>
+                            <p className="text-slate-700 font-semibold text-xs">
+                                <span className="text-slate-400 font-bold ml-1">سجل تجاري CR:</span> {sellerCr}
+                            </p>
+                        </div>
                     </div>
 
-                    <div className="px-6 space-y-6">
-                        <div className="flex justify-between items-start group">
-                            <div className="space-y-1.5">
-                                <h4 className="text-lg font-bold text-slate-800 tracking-tight">
-                                    {invoice.description || "Professional Services | خدمات مهنية"}
-                                </h4>
-                                <div className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-                                    <span>Project: {project.name}</span>
-                                    <span>Code: {project.code}</span>
-                                    {invoice.dueDate && (
-                                        <span>Due Date: {format(new Date(invoice.dueDate), 'dd/MM/yyyy')}</span>
-                                    )}
-                                </div>
+                    {/* Buyer */}
+                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                        <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest mb-3 border-b pb-2">معلومات المشتري | Buyer Info</h3>
+                        <div className="space-y-2 text-sm">
+                            <p className="font-bold text-slate-900">{buyerName}</p>
+                            <p className="text-slate-600 leading-relaxed font-medium">{buyerAddress}</p>
+                            <p className="text-slate-700 font-semibold text-xs mt-2">
+                                <span className="text-slate-400 font-bold ml-1">الرقم الضريبي VAT:</span> {buyerVat}
+                            </p>
+                            <p className="text-slate-700 font-semibold text-xs">
+                                <span className="text-slate-400 font-bold ml-1">سجل تجاري CR:</span> {buyerCr}
+                            </p>
+                        </div>
+                    </div>
+                </section>
+
+                {/* 3. Line Items Table */}
+                <section className="mb-12 min-h-[60mm]">
+                    <div className="overflow-hidden rounded-xl border border-slate-200 shadow-sm">
+                        <table className="w-full text-sm text-right border-collapse">
+                            <thead>
+                                <tr className="bg-slate-100 text-slate-700 font-black text-[10px] uppercase tracking-widest border-b border-slate-200">
+                                    <th className="p-3 text-right">الوصف<br/>Description</th>
+                                    <th className="p-3 text-center border-r border-slate-200">الكمية<br/>Qty</th>
+                                    <th className="p-3 text-center border-r border-slate-200">سعر الوحدة<br/>Unit Price</th>
+                                    <th className="p-3 text-center border-r border-slate-200">المجموع الفرعي<br/>Subtotal</th>
+                                    <th className="p-3 text-center border-r border-slate-200">نسبة الضريبة<br/>VAT Rate</th>
+                                    <th className="p-3 text-center border-r border-slate-200">قيمة الضريبة<br/>VAT Amount</th>
+                                    <th className="p-3 text-left border-r border-slate-200">المجموع مع الضريبة<br/>Total with VAT</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                                {invoice.items && invoice.items.length > 0 ? (
+                                    invoice.items.map((item: any, i: number) => (
+                                        <tr key={item.id || i} className="hover:bg-slate-50/50">
+                                            <td className="p-3 font-semibold text-slate-800">{item.description}</td>
+                                            <td className="p-3 text-center tabular-nums text-slate-600 border-r border-slate-100">{Number(item.quantity).toString()}</td>
+                                            <td className="p-3 text-center tabular-nums text-slate-600 border-r border-slate-100">{Number(item.unitPrice).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                                            <td className="p-3 text-center tabular-nums text-slate-600 border-r border-slate-100">{(item.quantity * item.unitPrice).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                                            <td className="p-3 text-center tabular-nums text-slate-600 border-r border-slate-100">{(item.taxRate * 100).toString()}%</td>
+                                            <td className="p-3 text-center tabular-nums text-slate-600 border-r border-slate-100">{Number(item.taxAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                                            <td className="p-3 text-left font-bold text-slate-900 tabular-nums border-r border-slate-100">{Number(item.totalAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                                        </tr>
+                                    ))
+                                ) : (
+                                    <tr>
+                                        <td colSpan={7} className="p-6 text-center text-slate-400 font-medium">لا توجد منتجات (No items available)</td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                {/* 4. Formatting Totals */}
+                <section className="break-inside-avoid flex justify-between items-start border-t-4 border-slate-900 pt-6 mb-12">
+                    <div className="w-1/2 pr-6">
+                        {invoice.description && (
+                            <div className="bg-slate-50 p-4 rounded-xl text-sm italic text-slate-600 font-medium border border-slate-100">
+                                {invoice.description}
                             </div>
-                            <span className="text-xl font-bold text-slate-900 tabular-nums">
-                                {baseAmount.toLocaleString()} <span className="text-xs font-medium text-slate-400 ml-1">SAR</span>
+                        )}
+                    </div>
+                    
+                    <div className="w-80 space-y-3 pt-2">
+                        <div className="flex justify-between items-center text-sm font-bold text-slate-600 px-4">
+                            <span>الإجمالي (قبل الخصم والضريبة)<br/><span className="text-[10px] text-slate-400 tracking-widest uppercase">Subtotal</span></span>
+                            <span className="tabular-nums">{subTotalDisplay.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                        </div>
+                        
+                        {(actualDiscountSAR > 0) && (
+                            <div className="flex justify-between items-center text-sm font-bold text-red-500 px-4">
+                                <span>الخصم {invoice.discountType === 'PERCENTAGE' ? `(${invoice.discountValue}%)` : ''}<br/><span className="text-[10px] text-red-400 tracking-widest uppercase">Discount</span></span>
+                                <span className="tabular-nums">-{actualDiscountSAR.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                            </div>
+                        )}
+                        
+                        <div className="flex justify-between items-center text-sm font-bold text-slate-600 px-4">
+                            <span>إجمالي ضريبة القيمة المضافة 15%<br/><span className="text-[10px] text-slate-400 tracking-widest uppercase">Total VAT</span></span>
+                            <span className="tabular-nums">{vatAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                        </div>
+                        
+                        <div className="bg-primary/5 p-4 rounded-xl flex justify-between items-center border border-primary/20 mt-4">
+                            <span className="font-black text-primary leading-tight">الإجمالي المستحق<br/><span className="text-[10px] uppercase tracking-widest">Grand Total</span></span>
+                            <span className="text-2xl font-black text-primary tabular-nums">
+                                {grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })} <span className="text-xs font-bold text-primary/70 ml-1">SAR</span>
                             </span>
-                        </div>
-                    </div>
-                </section>
-
-                {/* 4. Financial Totals (Avoid Break Inside) */}
-                <section className="break-inside-avoid mt-8 mb-12 border-t border-slate-100 pt-8 flex justify-end">
-                    <div className="w-72 space-y-4">
-                        <div className="flex justify-between items-center text-sm font-medium">
-                            <span className="text-slate-500">Subtotal | المجموع الفرعي</span>
-                            <span className="text-slate-900 tabular-nums">{baseAmount.toLocaleString()} SAR</span>
-                        </div>
-                        <div className="flex justify-between items-center text-sm font-medium">
-                            <span className="text-slate-500">VAT (15%) | الضريبة</span>
-                            <span className="text-slate-900 tabular-nums">{vatAmount.toLocaleString()} SAR</span>
-                        </div>
-                        <div className="bg-primary/5 p-4 rounded-xl flex justify-between items-center">
-                            <span className="text-[10px] font-black uppercase tracking-widest text-primary">Grand Total | الإجمالي</span>
-                            <span className="text-2xl font-black text-primary tabular-nums italic">
-                                {totalWithVat.toLocaleString()} <span className="text-[10px] ml-1">SAR</span>
-                            </span>
-                        </div>
-                    </div>
-                </section>
-
-                {/* 5. Bank & Footer */}
-                <section className="break-inside-avoid mt-auto border-t border-slate-100 pt-8 mb-12">
-                    <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">Bank Details | بيانات البنك</h5>
-                    <div className="grid grid-cols-2 gap-8">
-                        <div className="bg-slate-50 p-4 rounded-xl space-y-2">
-                            <div>
-                                <p className="text-slate-400 uppercase text-[8px] tracking-tighter">Bank Name</p>
-                                <p className="text-slate-800 font-bold text-sm">{brand.bankName || "N/A"}</p>
-                            </div>
-                            <div>
-                                <p className="text-slate-400 uppercase text-[8px] tracking-tighter">IBAN</p>
-                                <p className="text-slate-800 font-mono font-bold tracking-tight text-sm">{brand.iban || "N/A"}</p>
-                            </div>
-                        </div>
-                        <div className="flex flex-col items-center justify-center text-center gap-4">
-                            <div className="w-full text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                                Authorized Signature | التوقيع المعتمد
-                            </div>
-                            <div className="h-16 w-32 border-b-2 border-slate-200"></div>
                         </div>
                     </div>
                 </section>
 
                 {/* Print Footer */}
-                <div className="print-footer border-t border-slate-200 flex justify-between items-end text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-12 print:mt-0">
-                    <div className="flex flex-col gap-1">
-                        <span>{brand.fullName}</span>
-                        <span>CR: {brand.crNumber} | VAT: {brand.vatNumber}</span>
+                <div className="print-footer border-t border-slate-200 flex justify-between items-end text-[9px] font-bold text-slate-400 uppercase tracking-widest pt-4">
+                    <div className="flex flex-col gap-1 text-right">
+                        <span>{sellerName}</span>
+                        <span>CR: {sellerCr} | VAT: {sellerVat}</span>
                     </div>
-                    <div className="flex flex-col items-end gap-1">
-                        <span>Page <span className="page-number"></span></span>
-                        <span className="normal-case">Generated via {brand.shortName || "System"}</span>
+                    <div className="flex flex-col items-start gap-1 text-left">
+                        <span>الصفحة <span className="page-number"></span></span>
+                        <span className="normal-case">تصدير النظام الآلي</span>
                     </div>
                 </div>
 

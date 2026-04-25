@@ -3,9 +3,11 @@ import { auth } from "@/auth"
 
 export type ModuleName = 'HR' | 'FINANCE' | 'GANTT' | 'ZATCA' | 'PROJECTS' | 'CRM' | 'FILE_UPLOAD'
 
+const ADMIN_ROLES = ['GLOBAL_SUPER_ADMIN', 'SUPER_ADMIN', 'ADMIN']
+
 export async function checkFeatureGate(tenantId: string, moduleName: ModuleName): Promise<boolean> {
     const session = await auth()
-    if ((session?.user as any)?.role === 'GLOBAL_SUPER_ADMIN') return true
+    if (ADMIN_ROLES.includes((session?.user as any)?.role)) return true
 
     // 1. Fetch Tenant with Plan info
     const tenant = await (db as any).tenant.findUnique({
@@ -39,7 +41,7 @@ export async function enforceFeature(moduleName: ModuleName) {
     const session = await auth()
     if (!session?.user) throw new Error("Authentication required")
 
-    if ((session.user as any).role === 'GLOBAL_SUPER_ADMIN') return
+    if (ADMIN_ROLES.includes((session.user as any).role)) return
 
     const tenantId = (session.user as any).tenantId
     const isAllowed = await checkFeatureGate(tenantId, moduleName)
@@ -58,8 +60,8 @@ export async function enforceFeature(moduleName: ModuleName) {
  */
 export async function enforceUserLimit(tenantId: string): Promise<void> {
     const session = await auth()
-    // Super admins bypass all limits
-    if ((session?.user as any)?.role === 'GLOBAL_SUPER_ADMIN') return
+    // Admin roles bypass all limits
+    if (ADMIN_ROLES.includes((session?.user as any)?.role)) return
 
     const tenant = await (db as any).tenant.findUnique({
         where: { id: tenantId },

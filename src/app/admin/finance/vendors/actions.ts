@@ -41,10 +41,12 @@ export async function createVendor(data: {
     const canManage = await hasPermission('finance', 'masterVisible')
     if (!canManage) return { error: "Unauthorized: Requires Finance Manager permission" }
     const tenantId = (session?.user as any).tenantId
+    if (!tenantId) return { error: "Tenant context missing" }
 
     try {
         const vendor = await (db as any).vendor.create({
             data: {
+                tenantId,
                 companyName: data.companyName,
                 specialty: data.specialty,
                 isVatRegistered: data.isVatRegistered ?? false,
@@ -94,7 +96,7 @@ export async function updateVendor(vendorId: string, data: {
 export async function deleteVendor(vendorId: string) {
     const session = await auth()
     const user = session?.user as any
-    const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN'
+    const isAdmin = ['GLOBAL_SUPER_ADMIN', 'SUPER_ADMIN', 'ADMIN'].includes(user?.role)
     if (!isAdmin) return { error: "Unauthorized: Only Admin can delete vendors" }
 
     try {
@@ -119,12 +121,20 @@ export async function deleteVendor(vendorId: string) {
 // ─────────────────────────────────────────────────────────────────
 
 export async function getAllVendors() {
+    const session = await auth()
+    const user = (session?.user as any)
+    const tenantId = user?.tenantId
+    const isGlobalSuperAdmin = user?.role === 'GLOBAL_SUPER_ADMIN'
     const canView = await hasPermission('finance', 'masterVisible')
         || await hasPermission('finance', 'viewContracts')
     if (!canView) return []
+    if (!tenantId && !isGlobalSuperAdmin) return []
+
+    const tenantFilter = isGlobalSuperAdmin ? {} : { tenantId }
 
     try {
         const vendors = await (db as any).vendor.findMany({
+            where: tenantFilter,
             include: {
                 subContracts: {
                     include: {

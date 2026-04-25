@@ -8,17 +8,33 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Loader2, UserPlus, Edit, Save } from "lucide-react"
 import { createClient, updateClient, ClientDTO } from "@/app/admin/crm/actions"
 import { toast } from "sonner"
 import { useRouter } from "next/navigation"
 
 const clientSchema = z.object({
+    clientType: z.enum(["COMPANY", "INDIVIDUAL"]),
     name: z.string().min(2, "Name must be at least 2 characters"),
     taxNumber: z.string().optional(),
+    crNumber: z.string().optional(),
+    nationalAddress: z.string().optional(),
     phone: z.string().optional(),
     email: z.string().email("Invalid email").optional().or(z.literal("")),
     address: z.string().optional(),
+}).superRefine((data, ctx) => {
+    if (data.clientType === 'COMPANY') {
+        if (!data.taxNumber) {
+            ctx.addIssue({ path: ['taxNumber'], message: 'VAT Number is required for Companies', code: z.ZodIssueCode.custom });
+        }
+        if (!data.crNumber) {
+            ctx.addIssue({ path: ['crNumber'], message: 'CR Number is required for Companies', code: z.ZodIssueCode.custom });
+        }
+        if (!data.nationalAddress) {
+            ctx.addIssue({ path: ['nationalAddress'], message: 'National Address is required for Companies', code: z.ZodIssueCode.custom });
+        }
+    }
 })
 
 type ClientFormValues = z.infer<typeof clientSchema>
@@ -42,8 +58,11 @@ export function ClientDialog({ client, trigger, open: controlledOpen, onOpenChan
     const form = useForm<ClientFormValues>({
         resolver: zodResolver(clientSchema),
         defaultValues: {
+            clientType: client?.clientType || "COMPANY",
             name: client?.name || "",
             taxNumber: client?.taxNumber || "",
+            crNumber: client?.crNumber || "",
+            nationalAddress: client?.nationalAddress || "",
             phone: client?.phone || "",
             email: client?.email || "",
             address: client?.address || "",
@@ -74,8 +93,11 @@ export function ClientDialog({ client, trigger, open: controlledOpen, onOpenChan
     const handleOpenChange = (newOpen: boolean) => {
         if (newOpen) {
             form.reset({
+                clientType: client?.clientType || "COMPANY",
                 name: client?.name || "",
                 taxNumber: client?.taxNumber || "",
+                crNumber: client?.crNumber || "",
+                nationalAddress: client?.nationalAddress || "",
                 phone: client?.phone || "",
                 email: client?.email || "",
                 address: client?.address || "",
@@ -106,6 +128,27 @@ export function ClientDialog({ client, trigger, open: controlledOpen, onOpenChan
                     <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 pt-4">
                         <FormField
                             control={form.control}
+                            name="clientType"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Client Type *</FormLabel>
+                                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                        <FormControl>
+                                            <SelectTrigger>
+                                                <SelectValue placeholder="Select Client Type" />
+                                            </SelectTrigger>
+                                        </FormControl>
+                                        <SelectContent>
+                                            <SelectItem value="COMPANY">Company (Standard)</SelectItem>
+                                            <SelectItem value="INDIVIDUAL">Individual (Simplified)</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+                        <FormField
+                            control={form.control}
                             name="name"
                             render={({ field }) => (
                                 <FormItem>
@@ -117,20 +160,54 @@ export function ClientDialog({ client, trigger, open: controlledOpen, onOpenChan
                                 </FormItem>
                             )}
                         />
+                        
+                        {form.watch("clientType") === "COMPANY" && (
+                            <>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <FormField
+                                        control={form.control}
+                                        name="taxNumber"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>Tax / VAT Number | الرقم الضريبي *</FormLabel>
+                                                <FormControl>
+                                                    <Input placeholder="ZATCA Number" {...field} />
+                                                </FormControl>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                    <FormField
+                                        control={form.control}
+                                        name="crNumber"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>CR Number | السجل التجاري *</FormLabel>
+                                                <FormControl>
+                                                    <Input placeholder="Commercial Registration" {...field} />
+                                                </FormControl>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                </div>
+                                <FormField
+                                    control={form.control}
+                                    name="nationalAddress"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel>National Address | العنوان الوطني *</FormLabel>
+                                            <FormControl>
+                                                <Input placeholder="Building, Street, District..." {...field} />
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                            </>
+                        )}
+
                         <div className="grid grid-cols-2 gap-4">
-                            <FormField
-                                control={form.control}
-                                name="taxNumber"
-                                render={({ field }) => (
-                                    <FormItem>
-                                        <FormLabel>Tax / VAT Number</FormLabel>
-                                        <FormControl>
-                                            <Input placeholder="ZATCA Number" {...field} />
-                                        </FormControl>
-                                        <FormMessage />
-                                    </FormItem>
-                                )}
-                            />
                             <FormField
                                 control={form.control}
                                 name="phone"

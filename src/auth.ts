@@ -56,12 +56,35 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
                     const isPasswordValid = await bcrypt.compare(password, user.password)
                     if (!isPasswordValid) return null
 
+                    // Role resolution: the DB `role` column may be 'GLOBAL_SUPER_ADMIN'
+                    // (set by an emergency recovery script). That sentinel must never be
+                    // overridden by whatever display name the assigned tenant Role carries
+                    // (e.g. 'Emergency Admin'), because every RBAC check compares against
+                    // the exact string 'GLOBAL_SUPER_ADMIN'.
+                    const dbRole = (user as any).role as string | undefined
+                    const assignedRoleName = (user as any).userRole?.name as string | undefined
+                    const finalRole = dbRole === 'GLOBAL_SUPER_ADMIN'
+                        ? 'GLOBAL_SUPER_ADMIN'
+                        : (assignedRoleName || dbRole)
+
+                    // Safe permission matrix parsing: Prisma may return the JSON column
+                    // as a plain object (already parsed) or as a raw string, depending on
+                    // the driver / SQLite vs Postgres. JSON.parse on an object throws.
+                    let parsedPerms: any = null
+                    const rawPerms = (user as any).userRole?.permissionMatrix
+                    if (rawPerms != null) {
+                        parsedPerms = typeof rawPerms === 'string'
+                            ? (() => { try { return JSON.parse(rawPerms) } catch { return null } })()
+                            : rawPerms  // already an object — use as-is
+                    }
+
                     return {
                         id: user.id,
                         email: user.email,
                         name: user.name,
-                        role: (user as any).userRole?.name || (user as any).role,
+                        role: finalRole,
                         tenantId: (user as any).tenantId,
+                        tenantSlug: (user as any).tenant?.slug ?? null,
                         subscriptionTier: (user as any).tenant?.subscriptionTier || 'STANDARD',
                         planId: (user as any).tenant?.planId,
                         planName: (user as any).tenant?.plan?.name,
@@ -69,9 +92,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
                         tenantStatus: (user as any).tenant?.status || 'ACTIVE',
                         subscriptionEnd: (user as any).tenant?.subscriptionEnd,
                         setupCompleted: (user as any).tenant?.setupCompleted ?? false,
-                        permissions: (user as any).userRole?.permissionMatrix
-                            ? JSON.parse((user as any).userRole.permissionMatrix)
-                            : null
+                        permissions: parsedPerms
                     }
                 } catch (error) {
                     console.error("[AUTH ERROR] Critical failure in authorize function:", error)

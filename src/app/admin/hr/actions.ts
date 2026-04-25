@@ -5,6 +5,8 @@ import { auth } from "@/auth"
 import { revalidatePath } from "next/cache"
 import { checkPermission, hasPermission } from "@/lib/rbac"
 import bcrypt from "bcryptjs"
+import fs from "fs/promises"
+import path from "path"
 
 /**
  * PHASE 1: UNIFIED HR LOGIC
@@ -52,12 +54,16 @@ export async function submitRequest(type: 'LEAVE' | 'LOAN' | 'DOCUMENT' | 'COMPL
             })
         } else if (type === 'LOAN') {
             const { amount, installments, reason } = data
+            const parsedInstallments = parseInt(installments)
+            const parsedAmount = parseFloat(amount)
+            if (parsedInstallments <= 0) return { error: "Installments must be at least 1" }
+            if (parsedAmount <= 0) return { error: "Loan amount must be greater than zero" }
             await (db as any).loanRequest.create({
                 data: {
                     profileId: profile.id,
-                    amount: parseFloat(amount),
-                    installments: parseInt(installments),
-                    monthlyDeduction: parseFloat(amount) / parseInt(installments),
+                    amount: parsedAmount,
+                    installments: parsedInstallments,
+                    monthlyDeduction: parsedAmount / parsedInstallments,
                     reason,
                     status: initialStatus
                 }
@@ -98,7 +104,7 @@ export const submitUnifiedRequest = submitRequest;
 
 export async function processRequest(requestId: string, decision: 'APPROVE' | 'REJECT', role: 'MANAGER' | 'HR' | 'FINANCE', reason?: string) {
     const user = await checkAuth(['ADMIN', 'HR_MANAGER', 'FINANCE_MANAGER', 'PM'])
-    const isAdmin = user.role === 'ADMIN' || user.role === 'SUPER_ADMIN'
+    const isAdmin = ['GLOBAL_SUPER_ADMIN', 'SUPER_ADMIN', 'ADMIN'].includes(user.role)
 
     // Fine-grained permission checks
     if (role === 'HR') {
@@ -138,7 +144,7 @@ export async function processRequest(requestId: string, decision: 'APPROVE' | 'R
 
             // GOD MODE: Admins and Global HR bypass all checks
             const canApproveLeaves = await hasPermission('hr', 'approveLeaves')
-            const isSuperAdmin = user.role === 'SUPER_ADMIN' || user.role === 'ADMIN'
+            const isSuperAdmin = ['GLOBAL_SUPER_ADMIN', 'SUPER_ADMIN', 'ADMIN'].includes(user.role)
 
             if (isSuperAdmin || canApproveLeaves) {
                 nextStatus = 'APPROVED'
@@ -325,7 +331,7 @@ export async function uploadMedicalReport(requestId: string, formData: FormData)
 
         // Authorization: Only the requester or HR/Admin can upload
         const canManageHR = await hasPermission('hr', 'createEdit')
-        const isSuperAdmin = user.role === 'SUPER_ADMIN' || user.role === 'ADMIN'
+        const isSuperAdmin = ['GLOBAL_SUPER_ADMIN', 'SUPER_ADMIN', 'ADMIN'].includes(user.role)
         if (request.userId !== user.id && !canManageHR && !isSuperAdmin) {
             return { error: "Unauthorized to upload for this request" };
         }
@@ -398,7 +404,7 @@ export async function updateLeaveStatus(requestId: string, status: string, rejec
             updateData.reviewerId = currentUser.id
         } else if (status === 'APPROVED') {
             const canApprove = await hasPermission('hr', 'approveLeaves')
-            const isSuperAdmin = userRole === 'SUPER_ADMIN' || userRole === 'ADMIN'
+            const isSuperAdmin = ['GLOBAL_SUPER_ADMIN', 'SUPER_ADMIN', 'ADMIN'].includes(userRole)
             // Allow ADMIN, HR, and PM to approve
             if (!canApprove && !isSuperAdmin) {
                 return { error: "Unauthorized to approve" }
@@ -467,6 +473,10 @@ export async function updateStaffProfile(staffId: string, formData: FormData) {
     const isAllowed = await hasPermission('hr', 'createEdit')
     if (!isAllowed) return { error: "Unauthorized: Requires HR Write Permission" }
 
+    const session = await auth()
+    const currentUser = session?.user as any
+    const isSuperAdmin = ['GLOBAL_SUPER_ADMIN', 'SUPER_ADMIN'].includes(currentUser?.role ?? '')
+
     const data: any = {}
 
     // Helper to safely parse dates
@@ -495,10 +505,37 @@ export async function updateStaffProfile(staffId: string, formData: FormData) {
     if (formData.has("nationality")) data.nationality = formData.get("nationality")
     if (formData.has("googleEmail")) data.googleEmail = formData.get("googleEmail")
     if (formData.has("branchId")) data.branchId = formData.get("branchId")
+
+    // Photo: handle file upload
+    const photoEntry = formData.get("photo")
+    if (photoEntry && typeof photoEntry !== "string" && (photoEntry as File).size > 0) {
+        const file = photoEntry as File
+        const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg'
+        const filename = `${Date.now()}-${staffId}.${ext}`
+        const uploadDir = path.join(process.cwd(), 'public', 'uploads', 'avatars')
+        await fs.mkdir(uploadDir, { recursive: true })
+        const buffer = Buffer.from(await file.arrayBuffer())
+        await fs.writeFile(path.join(uploadDir, filename), buffer)
+        data.photo = `/uploads/avatars/${filename}`
+    }
     if (formData.has("directManagerId")) {
         const val = formData.get("directManagerId") as string
         if (val && val !== "NONE") data.directManagerId = val
         if (val === "NONE") data.directManagerId = null
+    }
+
+    // Role & Access Scope — SUPER_ADMIN only; silently ignored for everyone else.
+    // Also blocked if the admin is editing their own account (prevents self-demotion / lockout).
+    const isSelfEdit = currentUser?.id === staffId
+    if (isSuperAdmin && !isSelfEdit) {
+        if (formData.has("roleId")) {
+            const val = formData.get("roleId") as string
+            data.roleId = val || null
+        }
+        if (formData.has("accessScope")) {
+            const val = formData.get("accessScope") as string
+            if (val === 'BRANCH' || val === 'ALL') data.accessScope = val
+        }
     }
 
     // Legal
@@ -523,11 +560,14 @@ export async function updateStaffProfile(staffId: string, formData: FormData) {
     if (formData.has("leaveBalance")) data.leaveBalance = safeInt(formData.get("leaveBalance"))
 
     try {
+        const userUpdateData: any = { name: data.name }
+        if (isSuperAdmin) {
+            if (data.roleId !== undefined) userUpdateData.roleId = data.roleId
+            if (data.accessScope !== undefined) userUpdateData.accessScope = data.accessScope
+        }
         await (db as any).user.update({
             where: { id: staffId },
-            data: {
-                name: data.name,
-            }
+            data: userUpdateData,
         })
 
         // Update Profile
@@ -538,7 +578,9 @@ export async function updateStaffProfile(staffId: string, formData: FormData) {
                 googleEmail: data.googleEmail,
                 branchId: data.branchId,
                 directManagerId: data.directManagerId !== undefined ? data.directManagerId : undefined,
+                photo: data.photo,
                 passportNum: data.passportNumber,
+                passportExpiry: data.passportExpiryDate,   // was missing
                 idNumber: data.iqamaNumber,
                 idExpiry: data.iqamaExpiryDate,
                 insuranceProvider: data.insuranceCompany,
@@ -550,7 +592,10 @@ export async function updateStaffProfile(staffId: string, formData: FormData) {
                 otherAllowance: data.otherAllowance,
                 gosiDeduction: data.gosiDeduction,
                 hireDate: data.hireDate,
-                leaveBalance: data.leaveBalance
+                leaveBalance: data.leaveBalance,
+                // Derived computed field — kept in sync on every save
+                totalSalary: (data.basicSalary || 0) + (data.housingAllowance || 0)
+                    + (data.transportAllowance || 0) + (data.otherAllowance || 0)
             }
         })
 
@@ -575,6 +620,7 @@ export async function createStaff(formData: FormData) {
     const branchId = formData.get("branchId") as string
     const salary = parseFloat(formData.get("salary") as string || "0")
     const roleId = formData.get("roleId") as string
+    // department stores the SystemLookup `value` for the selected ENGINEERING_DISCIPLINE
     const department = formData.get("department") as string || "General"
     const directManagerId = formData.get("directManagerId") as string
 
@@ -628,6 +674,18 @@ export async function createStaff(formData: FormData) {
                 console.error("Failed to initialize Google Drive structure for new employee:", err);
                 // Non-blocking error
             }
+
+            // ── DEPARTMENTAL RULES HOOK ───────────────────────────────────────────
+            // TODO: Apply department-specific defaults based on `department` value.
+            // When this is implemented, look up a DepartmentRule record keyed by
+            // (tenantId + department) and apply:
+            //   - Default Drive subfolder path (e.g. "Architectural" → /Drive/Arch/)
+            //   - Default PermissionMatrix overrides for the role
+            //   - Default project assignment filters
+            // Example entry point:
+            //   const deptRule = await db.departmentRule.findFirst({ where: { tenantId, department } })
+            //   if (deptRule) { await applyDepartmentDefaults(createdUser.profile.id, deptRule) }
+            // ─────────────────────────────────────────────────────────────────────
         }
 
         revalidatePath('/admin/hr')
@@ -957,15 +1015,22 @@ export async function getUnifiedRequests() {
 }
 
 export async function adminForcePasswordChange(staffId: string, newPass: string) {
-    const isAllowed = await checkPermission('HR', 'write')
-    const session = await auth()
-    const currentUserRole = (session?.user as any)?.role
-
-    if (!isAllowed && currentUserRole !== 'ADMIN') {
-        return { error: "Unauthorized: Requires Admin or HR Write Permission" }
-    }
-
     try {
+        const session = await auth()
+        const currentUser = session?.user as any
+        if (!currentUser) return { error: "Not authenticated" }
+
+        const isAllowed = await checkPermission('HR', 'write')
+        const currentUserRole = currentUser.role
+        const isSelf = currentUser.id === staffId
+
+        // Allow if user has HR write permission, is an ADMIN, or is resetting their own password
+        const hasAdminRole = ['GLOBAL_SUPER_ADMIN', 'SUPER_ADMIN', 'ADMIN'].includes(currentUserRole)
+
+        if (!isAllowed && !hasAdminRole && !isSelf) {
+            return { error: "Unauthorized: You don't have permission to reset this password" }
+        }
+
         const hashedNew = await bcrypt.hash(newPass, 10)
 
         await (db as any).user.update({
@@ -975,15 +1040,15 @@ export async function adminForcePasswordChange(staffId: string, newPass: string)
 
         await (db as any).systemLog.create({
             data: {
-                userId: (session?.user as any)?.id,
+                userId: currentUser.id,
                 action: "ADMIN_PASSWORD_RESET",
-                details: JSON.stringify({ targetUserId: staffId })
+                details: JSON.stringify({ targetUserId: staffId, isSelf })
             }
         })
 
         return { success: true, message: "تم تغيير كلمة المرور للموظف بنجاح" }
-    } catch (e) {
+    } catch (e: any) {
         console.error("Admin Password Reset Error:", e)
-        return { error: "Failed to reset password" }
+        return { error: e.message || "Failed to reset password" }
     }
 }

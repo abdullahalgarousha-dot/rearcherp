@@ -9,8 +9,11 @@ export default async function NewDSRProjectPage({ params }: { params: Promise<{ 
     const session = await auth()
     if (!session) redirect('/login')
 
-    const project = await db.project.findUnique({
-        where: { id: projectId },
+    const tenantId = (session.user as any)?.tenantId
+    if (!tenantId) redirect('/login')
+
+    const project = await db.project.findFirst({
+        where: { id: projectId, tenantId },
         include: {
             brand: true,
             engineers: true,
@@ -23,6 +26,7 @@ export default async function NewDSRProjectPage({ params }: { params: Promise<{ 
     if (!project) notFound()
 
     const contractors = await db.contractor.findMany({
+        where: { tenantId },
         orderBy: { companyName: 'asc' }
     })
 

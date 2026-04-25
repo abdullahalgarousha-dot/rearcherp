@@ -3,7 +3,7 @@
 import { Task } from "gantt-task-react";
 import "gantt-task-react/dist/index.css";
 import { ViewMode, Gantt } from "gantt-task-react";
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 import { Button } from "@/components/ui/button";
@@ -18,20 +18,25 @@ type Props = {
 }
 
 const globalStyles = `
-  /* Today — bold red vertical indicator */
+  /* Today — bold red dashed vertical indicator */
   .gantt .today-highlight {
     fill: rgba(239, 68, 68, 0.06) !important;
     stroke: #ef4444 !important;
-    stroke-width: 2.5px !important;
-    stroke-dasharray: none !important;
+    stroke-width: 2px !important;
+    stroke-dasharray: 8 4 !important;
   }
   /* gantt-task-react also renders a <line class="today"> in some versions */
   .gantt line.today,
   .gantt .today-line {
     stroke: #ef4444 !important;
-    stroke-width: 2.5px !important;
-    stroke-dasharray: none !important;
+    stroke-width: 2px !important;
+    stroke-dasharray: 8 4 !important;
     opacity: 1 !important;
+  }
+  /* Ensure the today line renders above grid rows */
+  .gantt .today-highlight,
+  .gantt line.today {
+    z-index: 10;
   }
   .gantt .bar-wrapper .bar-label {
     font-weight: 800 !important;
@@ -54,13 +59,16 @@ function safeParseDeps(deps: any): string[] {
 }
 
 export function ProjectGanttChart({ tasks, project, stages = [] }: Props) {
-    const [viewMode, setViewMode] = useState<ViewMode>(ViewMode.Month);
+    const [viewMode, setViewMode] = useState<ViewMode>(ViewMode.Week);
     const [filter, setFilter] = useState<'ALL' | 'DESIGN' | 'SUPERVISION'>('ALL');
     const [isExporting, setIsExporting] = useState(false);
+    const [scrollX, setScrollX] = useState(0);
+    const [isMounted, setIsMounted] = useState(false);
+    useEffect(() => setIsMounted(true), []);
     const ganttRef = useRef<HTMLDivElement>(null);
     const printRef = useRef<HTMLDivElement>(null);
 
-    // Filter out supervision tasks from the main Gantt view as requested, 
+    // Filter out supervision tasks from the main Gantt view as requested,
     // especially when viewing the Design Pipeline context.
     const filteredTasks = tasks.filter(t => {
         if (filter === 'ALL') return t.type !== 'SUPERVISION';
@@ -118,8 +126,7 @@ export function ProjectGanttChart({ tasks, project, stages = [] }: Props) {
 
         // 2. Add Tasks linked to this phase
         stageTasks.forEach(t => {
-            const initials = t.assignees?.map((a: any) => a.name.split(' ').map((n: string) => n[0]).join('').substring(0, 2).toUpperCase()).join(', ')
-            const displayName = initials ? `${t.title} [${initials}]` : t.title
+            const displayName = t.title
 
             const isDelayed = now > new Date(t.end) && t.progress < 100
             const isFuture = now < new Date(t.start)
@@ -179,11 +186,10 @@ export function ProjectGanttChart({ tasks, project, stages = [] }: Props) {
         })
 
         orphanTasks.forEach(t => {
-            const initials = t.assignees?.map((a: any) => a.name.split(' ').map((n: string) => n[0]).join('').substring(0, 2).toUpperCase()).join(', ')
             taskElements.push({
                 start: new Date(t.start),
                 end: new Date(t.end),
-                name: initials ? `${t.title} [${initials}]` : t.title,
+                name: t.title,
                 id: t.id,
                 project: "STAGE_ORPHAN",
                 type: 'task',
@@ -202,18 +208,55 @@ export function ProjectGanttChart({ tasks, project, stages = [] }: Props) {
 
     const ganttTasks = taskElements
 
+    // Sync scroll position from the library's internal scroll container
+    // (placed here so ganttTasks is in scope for the dependency array)
+    useEffect(() => {
+        const ganttEl = ganttRef.current;
+        if (!ganttEl) return;
+        let scrollContainer: HTMLElement | null = null;
+        const allDivs = Array.from(ganttEl.querySelectorAll<HTMLDivElement>('div'));
+        for (const div of allDivs) {
+            const cs = getComputedStyle(div);
+            if ((cs.overflowX === 'auto' || cs.overflowX === 'scroll') && div.scrollWidth > div.clientWidth + 10) {
+                scrollContainer = div;
+                break;
+            }
+        }
+        if (!scrollContainer) return;
+        const handler = () => setScrollX(scrollContainer!.scrollLeft);
+        scrollContainer.addEventListener('scroll', handler, { passive: true });
+        return () => scrollContainer!.removeEventListener('scroll', handler);
+    }, [ganttTasks.length, viewMode]);
+
     const startDate = ganttTasks.length > 0 ? new Date(Math.min(...ganttTasks.map(t => t.start.getTime()))) : new Date();
     const endDate = ganttTasks.length > 0 ? new Date(Math.max(...ganttTasks.map(t => t.end.getTime()))) : new Date();
     const durationDays = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
 
+    const projectStartDay = ganttTasks.length > 0
+        ? new Date(Math.min(...ganttTasks.map(t => t.start.getTime())))
+        : new Date();
+
+    // ── Today-line position ──────────────────────────────────────────────────
+    const LIST_PX = 350; // must match listCellWidth="350px"
+    const colPx = viewMode === ViewMode.Month ? 120 : 80;
+    const daysSinceStart = Math.max(0, (now.getTime() - startDate.getTime()) / 86400000);
+    const todayOffsetPx =
+        viewMode === ViewMode.Day   ? daysSinceStart * colPx :
+        viewMode === ViewMode.Week  ? (daysSinceStart / 7) * colPx :
+        /* Month */ ((now.getFullYear() - startDate.getFullYear()) * 12 + (now.getMonth() - startDate.getMonth())) * colPx;
+    // safeLeft is only used inside the isMounted guard — never rendered on the server
+    const safeLeft = isMounted ? Math.floor(LIST_PX + todayOffsetPx - scrollX) : 0;
+
     const TaskListHeader = ({ headerHeight }: { headerHeight: number }) => {
         return (
-            <div
-                style={{ height: headerHeight }}
-                className="flex items-center font-bold text-xs uppercase bg-slate-50 border-r border-b text-slate-500"
-            >
-                <div className="flex-1 px-4 border-r h-full flex items-center">Phases & Activities</div>
-                <div className="w-16 px-2 h-full flex items-center justify-center text-center">%</div>
+            <div style={{ height: headerHeight }} className="flex flex-col border-r border-b bg-slate-50 text-slate-500">
+                <div className="flex items-center font-bold text-xs uppercase flex-1 border-b border-slate-200">
+                    <div className="flex-1 px-4 border-r h-full flex items-center">Phases & Activities</div>
+                    <div className="w-16 px-2 h-full flex items-center justify-center text-center">%</div>
+                </div>
+                <div className="flex items-center text-[10px] font-black text-slate-400 uppercase tracking-widest px-4 h-6">
+                    Day {Math.ceil((new Date().getTime() - projectStartDay.getTime()) / 86400000) + 1} of {durationDays} &nbsp;·&nbsp; Start: {projectStartDay.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}
+                </div>
             </div>
         );
     };
@@ -251,57 +294,74 @@ export function ProjectGanttChart({ tasks, project, stages = [] }: Props) {
 
             const element = printRef.current;
 
+            // Expand the container so html2canvas captures everything
+            const origOverflow = element.style.overflow;
+            const origWidth    = element.style.width;
+            const origHeight   = element.style.height;
+            element.style.overflow = 'visible';
+            element.style.width    = 'max-content';
+            element.style.height   = 'auto';
+            await new Promise(resolve => setTimeout(resolve, 200));
+
             const canvas = await html2canvas(element, {
                 scale: 1.5,
                 useCORS: true,
                 allowTaint: true,
                 logging: false,
-                windowWidth: 2000,
+                windowWidth: 1800,
                 backgroundColor: '#ffffff',
                 imageTimeout: 10000,
-                // Pre-validate every <img> in the cloned DOM.
-                // Broken / 404 images are hidden so html2canvas never stalls on them.
                 onclone: (_doc, clonedEl) => {
+                    // 1. Expand every overflow:hidden child so nothing gets clipped
+                    clonedEl.querySelectorAll<HTMLElement>('*').forEach(el => {
+                        const cs = getComputedStyle(el);
+                        if (cs.overflow === 'hidden' || cs.overflowX === 'hidden' || cs.overflowY === 'hidden') {
+                            el.style.overflow = 'visible';
+                        }
+                    });
+
+                    // 2. Arabic glyph fix: font + letter-spacing globally; rtl only on .ar-cell
+                    const style = _doc.createElement('style');
+                    style.textContent = `
+                        * { font-family: Arial, sans-serif !important; letter-spacing: normal !important; }
+                        .ar-cell { direction: rtl !important; text-align: right !important; unicode-bidi: embed !important; }
+                    `;
+                    _doc.head.appendChild(style);
+
+                    // 3. Hide broken images
                     const imgs = clonedEl.querySelectorAll<HTMLImageElement>('img');
                     return Promise.all(
-                        Array.from(imgs).map(
-                            img =>
-                                new Promise<void>(resolve => {
-                                    if (img.complete && img.naturalWidth > 0) {
-                                        resolve();
-                                    } else {
-                                        img.onload = () => resolve();
-                                        img.onerror = () => {
-                                            img.style.display = 'none';
-                                            resolve();
-                                        };
-                                        // Kick off load if src is already set but not yet loaded
-                                        if (img.src) img.src = img.src;
-                                    }
-                                })
+                        Array.from(imgs).map(img =>
+                            new Promise<void>(resolve => {
+                                if (img.complete && img.naturalWidth > 0) { resolve(); }
+                                else {
+                                    img.onload = () => resolve();
+                                    img.onerror = () => { img.style.display = 'none'; resolve(); };
+                                    if (img.src) img.src = img.src;
+                                }
+                            })
                         )
                     ) as unknown as void;
                 },
             });
 
+            // Restore original styles
+            element.style.overflow = origOverflow;
+            element.style.width    = origWidth;
+            element.style.height   = origHeight;
+
             if (!canvas || canvas.width === 0) {
                 throw new Error("Canvas rendering failed");
             }
 
-            console.log("Canvas captured, creating PDF...");
-            const imgData = canvas.toDataURL('image/jpeg', 0.8); // Use JPEG for better performance/smaller size
-            const pdf = new jsPDF({
-                orientation: 'l',
-                unit: 'mm',
-                format: 'a3'
-            });
-
+            const imgData = canvas.toDataURL('image/png');
+            const pdf = new jsPDF('l', 'mm', 'a3');
             const pdfWidth = pdf.internal.pageSize.getWidth();
-            const imgProps = pdf.getImageProperties(imgData);
-            const ratio = imgProps.width / imgProps.height;
-            const finalHeight = pdfWidth / ratio;
-
-            pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, finalHeight);
+            const pdfHeight = pdf.internal.pageSize.getHeight();
+            const ratio = Math.min(pdfWidth / canvas.width, pdfHeight / canvas.height);
+            const imgX = (pdfWidth - canvas.width * ratio) / 2;
+            const imgY = 0;
+            pdf.addImage(imgData, 'PNG', imgX, imgY, canvas.width * ratio, canvas.height * ratio);
 
             const fileName = `${(project.code || 'Gantt').replace(/[^a-z0-9]/gi, '_')}.pdf`;
             console.log(`Saving PDF as ${fileName}`);
@@ -373,15 +433,70 @@ export function ProjectGanttChart({ tasks, project, stages = [] }: Props) {
                 </div>
             </div>
 
+            {/* Days row — synced to gantt scroll, sits just above the chart */}
+            {isMounted && (
+                <div className="flex bg-slate-100 border border-slate-200 rounded-xl overflow-hidden text-[9px] font-black text-slate-400 select-none">
+                    {/* Spacer over the task-list left panel */}
+                    <div style={{ minWidth: LIST_PX }} className="border-r border-slate-300 px-3 py-1 flex items-center text-[10px] uppercase tracking-widest shrink-0">
+                        Day # · Start {projectStartDay.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' })}
+                    </div>
+                    {/* Scrolling day cells — one cell per day, clipped when too narrow */}
+                    <div className="flex-1 overflow-hidden">
+                        <div className="flex" style={{ transform: `translateX(-${scrollX}px)`, willChange: 'transform' }}>
+                            {Array.from({ length: durationDays + 4 }, (_, i) => {
+                                const cellD = new Date(startDate.getTime() + i * 86400000);
+                                const isToday = cellD.toDateString() === now.toDateString();
+                                // Day mode: full colPx per day; Week: colPx/7; Month: colPx/30
+                                const dayW = viewMode === ViewMode.Day ? colPx
+                                    : viewMode === ViewMode.Week ? colPx / 7
+                                    : colPx / 30.44;
+                                return (
+                                    <div
+                                        key={i}
+                                        style={{ minWidth: dayW, width: dayW }}
+                                        className={cn(
+                                            "border-r border-slate-200 text-center py-1 overflow-hidden whitespace-nowrap",
+                                            isToday ? "bg-red-500 text-white font-black" : ""
+                                        )}
+                                    >
+                                        {/* Show number only when cell is wide enough; show date in Day mode */}
+                                        {dayW >= 20 ? (viewMode === ViewMode.Day
+                                            ? cellD.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
+                                            : i + 1)
+                                        : dayW >= 10 ? i + 1
+                                        : ''}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Interactive Chart Container */}
             <div className="overflow-hidden rounded-[2.5rem] border border-slate-200 shadow-xl bg-white relative group" ref={ganttRef}>
                 {/* Decorative Elements */}
                 <div className="absolute top-0 left-0 w-2 h-full bg-primary/20 z-10" />
-                {/* TODAY badge — floats at top of chart area, right-aligned to avoid task list */}
+                {/* TODAY badge — client-only to avoid timezone-driven date mismatch */}
                 <div className="absolute top-3 right-4 z-20 flex items-center gap-1.5 bg-red-500 text-white text-[10px] font-black px-2.5 py-1 rounded-full shadow-lg shadow-red-500/30 print:hidden pointer-events-none">
                     <span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse inline-block" />
-                    TODAY · {now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                    {isMounted
+                        ? `TODAY · ${now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}`
+                        : 'TODAY'}
                 </div>
+                {/* Today dashed vertical line — DO NOT render on server; strictly client-only */}
+                {isMounted ? (
+                    <div
+                        className="absolute top-0 bottom-0 z-30 pointer-events-none"
+                        style={{
+                            position: 'absolute',
+                            left: `${Math.floor(safeLeft)}px`,
+                            width: 2,
+                            backgroundImage: 'repeating-linear-gradient(to bottom, #ef4444 0px, #ef4444 6px, transparent 6px, transparent 10px)',
+                            opacity: safeLeft >= LIST_PX ? 0.85 : 0,
+                        }}
+                    />
+                ) : null}
 
                 {ganttTasks.length > 0 ? (
                     <Gantt
@@ -431,11 +546,11 @@ export function ProjectGanttChart({ tasks, project, stages = [] }: Props) {
             </div>
 
             {/* Hidden Print Container - A3 Landscape Optimized (Deltek Style) */}
-            <div className="absolute left-[-9999px] top-0" aria-hidden="true">
+            <div className="fixed left-[-9999px] top-0" aria-hidden="true">
                 <div
                     ref={printRef}
                     className="w-[420mm] bg-white text-slate-900 p-10 flex flex-col font-sans"
-                    style={{ minHeight: '297mm' }}
+                    style={{ minHeight: '297mm', transformOrigin: '0 0', height: 'auto' }}
                 >
                     {/* Deltek-Style Professional Header */}
                     <div className="flex justify-between items-start mb-10 border-b-[6px] border-slate-900 pb-8">
@@ -492,15 +607,40 @@ export function ProjectGanttChart({ tasks, project, stages = [] }: Props) {
                         </div>
                     </div>
 
-                    {/* Static Gantt for Print */}
-                    <div className="border-[3px] border-slate-900 rounded-2xl overflow-hidden bg-white shadow-sm">
+                    {/* Static Gantt for Print — wrapped in relative so the today line can overlay it */}
+                    <div className="border-[3px] border-slate-900 rounded-2xl overflow-hidden bg-white shadow-sm relative">
+                        {/* Today line in print — client-only to avoid hydration mismatch from 'now' timestamp */}
+                        {isMounted && (() => {
+                            const printListPx = 520;
+                            const printColPx = viewMode === ViewMode.Day ? 40 : viewMode === ViewMode.Week ? 70 : 120;
+                            const printTodayOffset =
+                                viewMode === ViewMode.Day  ? daysSinceStart * printColPx :
+                                viewMode === ViewMode.Week ? (daysSinceStart / 7) * printColPx :
+                                ((now.getFullYear() - startDate.getFullYear()) * 12 + (now.getMonth() - startDate.getMonth())) * printColPx;
+                            const printTodayLeft = Math.floor(printListPx + printTodayOffset);
+                            return printTodayLeft > printListPx ? (
+                                <div
+                                    style={{
+                                        position: 'absolute',
+                                        left: printTodayLeft,
+                                        top: 0,
+                                        bottom: 0,
+                                        width: 2,
+                                        backgroundImage: 'repeating-linear-gradient(to bottom, #ef4444 0px, #ef4444 6px, transparent 6px, transparent 10px)',
+                                        zIndex: 40,
+                                        pointerEvents: 'none',
+                                        opacity: 0.85,
+                                    }}
+                                />
+                            ) : null;
+                        })()}
                         {ganttTasks.length > 0 ? (
                             <Gantt
                                 tasks={ganttTasks}
                                 viewMode={viewMode}
                                 locale="en-GB"
-                                listCellWidth="400px"
-                                columnWidth={viewMode === ViewMode.Month ? 120 : 70}
+                                listCellWidth="520px"
+                                columnWidth={viewMode === ViewMode.Day ? 40 : viewMode === ViewMode.Week ? 70 : 120}
                                 headerHeight={60}
                                 rowHeight={60}
                                 barCornerRadius={4}
@@ -509,26 +649,35 @@ export function ProjectGanttChart({ tasks, project, stages = [] }: Props) {
                                 arrowColor="#64748b"
                                 arrowIndent={20}
                                 TaskListHeader={({ headerHeight }) => (
-                                    <div style={{ height: headerHeight }} className="flex items-center font-black text-sm uppercase bg-slate-100 border-r-2 border-slate-900 border-b-2 text-slate-700">
-                                        <div className="flex-1 px-6 border-r-2 border-slate-900 h-full flex items-center tracking-wider">Task Profile & Resources</div>
-                                        <div className="w-20 px-2 h-full flex items-center justify-center text-center">%</div>
+                                    <div style={{ height: headerHeight }} className="flex items-center font-black text-xs uppercase bg-slate-100 border-r-2 border-slate-900 border-b-2 text-slate-700">
+                                        <div className="flex-1 px-6 border-r-2 border-slate-900 h-full flex items-center tracking-wider">Task / Phase</div>
+                                        <div className="w-20 px-2 border-r-2 border-slate-900 h-full flex items-center justify-center text-center">Start</div>
+                                        <div className="w-20 px-2 border-r-2 border-slate-900 h-full flex items-center justify-center text-center">End</div>
+                                        <div className="w-14 px-2 border-r-2 border-slate-900 h-full flex items-center justify-center text-center">Days</div>
+                                        <div className="w-14 px-2 h-full flex items-center justify-center text-center">%</div>
                                     </div>
                                 )}
                                 TaskListTable={({ rowHeight, tasks }) => (
-                                    <div className="border-r-2 border-slate-900 bg-white font-bold text-sm text-slate-800">
-                                        {tasks.map((t: Task) => (
-                                            <div key={t.id} style={{ height: rowHeight }} className="flex items-center border-b border-slate-200">
-                                                <div className={cn(
-                                                    "flex-1 px-6 truncate border-r-2 border-slate-900 h-full flex items-center",
-                                                    t.type === 'project' ? "font-black text-slate-900 bg-slate-100 uppercase tracking-tight" : "pl-12 font-bold text-slate-600"
-                                                )}>
-                                                    {t.name}
+                                    <div className="border-r-2 border-slate-900 bg-white font-bold text-xs text-slate-800">
+                                        {tasks.map((t: Task) => {
+                                            const days = Math.ceil((t.end.getTime() - t.start.getTime()) / 86400000) + 1
+                                            const fmtD = (d: Date) => d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
+                                            const isPhase = t.type === 'project'
+                                            return (
+                                                <div key={t.id} style={{ height: rowHeight }} className={cn("flex items-center border-b border-slate-200", isPhase && "bg-slate-100")}>
+                                                    <div className={cn(
+                                                        "ar-cell flex-1 px-4 truncate border-r-2 border-slate-900 h-full flex items-center",
+                                                        isPhase ? "font-black text-slate-900 uppercase tracking-tight" : "pl-8 font-bold text-slate-600"
+                                                    )}>
+                                                        {t.name}
+                                                    </div>
+                                                    <div className="w-20 px-2 border-r-2 border-slate-900 h-full flex items-center justify-center">{fmtD(t.start)}</div>
+                                                    <div className="w-20 px-2 border-r-2 border-slate-900 h-full flex items-center justify-center">{fmtD(t.end)}</div>
+                                                    <div className="w-14 px-2 border-r-2 border-slate-900 h-full flex items-center justify-center">{days}</div>
+                                                    <div className="w-14 px-2 h-full flex items-center justify-center font-black">{t.progress}%</div>
                                                 </div>
-                                                <div className="w-20 px-2 h-full flex items-center justify-center font-black bg-slate-50">
-                                                    {t.progress}%
-                                                </div>
-                                            </div>
-                                        ))}
+                                            )
+                                        })}
                                     </div>
                                 )}
                             />

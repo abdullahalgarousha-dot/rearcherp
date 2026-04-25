@@ -18,7 +18,7 @@ export default async function VendorStatementPage({ params }: { params: Promise<
 
     const { vendorId } = await params
 
-    const canView = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN' || user?.role === 'ACCOUNTANT'
+    const canView = ['GLOBAL_SUPER_ADMIN', 'SUPER_ADMIN', 'ADMIN', 'ACCOUNTANT'].includes(user?.role)
     if (!canView) return redirect('/admin/finance')
 
     const vendor = await getVendorStatement(vendorId)

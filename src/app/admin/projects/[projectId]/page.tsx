@@ -1,12 +1,10 @@
+import { Suspense } from "react"
 import { auth } from "@/auth"
 import { redirect } from "next/navigation"
 import { db } from "@/lib/db"
-import Link from "next/link"
-import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { GanttChart, Printer } from "lucide-react"
 import { ProjectGanttChart } from "@/components/timeline/gantt-chart"
 import { TaskList } from "@/components/timeline/task-list"
 import { NewTaskDialog } from "@/components/timeline/new-task-dialog"
@@ -23,85 +21,147 @@ import { DocumentRegisterTab } from "@/components/projects/documents/document-re
 import { getProjectCostReport } from "@/app/actions/timesheet"
 import { getProjectPL } from "@/app/actions/accounts"
 
-interface ProjectDetailsPageProps {
-    params: {
-        projectId: string
-    }
+// ── Async streaming component: Gantt + Task List ─────────────────────────
+async function GanttSection({ projectId, project }: { projectId: string; project: any }) {
+    const tasks = await (db as any).task.findMany({
+        where: { projectId },
+        select: {
+            id: true, title: true, description: true, status: true, type: true,
+            start: true, end: true, progress: true, dependencies: true,
+            projectId: true, designStageId: true,
+            assignees: { select: { id: true, name: true } },
+        },
+        orderBy: { start: "asc" },
+    })
+
+    const serialized = JSON.parse(JSON.stringify(tasks))
+
+    return (
+        <>
+            <Card className="border-none shadow-xl bg-white rounded-3xl overflow-hidden">
+                <CardContent className="p-0">
+                    <ProjectGanttChart tasks={serialized} project={project} stages={project.designStages} />
+                </CardContent>
+            </Card>
+            <Card className="border-none shadow-xl bg-white rounded-3xl">
+                <CardHeader>
+                    <CardTitle>Task List</CardTitle>
+                </CardHeader>
+                <CardContent>
+                    <TaskList tasks={serialized} engineers={project.engineers} designStages={project.designStages || []} />
+                </CardContent>
+            </Card>
+        </>
+    )
 }
 
-export default async function ProjectDetailsPage({ params, searchParams }: { params: Promise<{ projectId: string }>, searchParams: Promise<{ tab?: string }> }) {
+// ── Async streaming component: Financials ────────────────────────────────
+async function FinancialsSection({
+    projectId, project, canEdit, canApproveFinance,
+}: {
+    projectId: string; project: any; canEdit: boolean; canApproveFinance: boolean;
+}) {
+    const [costReport, plData, timeLogsRaw, subContractsRaw] = await Promise.all([
+        getProjectCostReport(projectId),
+        getProjectPL(projectId),
+        (db as any).timeLog.findMany({
+            where: { projectId },
+            select: {
+                hoursLogged: true,
+                user: { select: { profile: { select: { hourlyRate: true } } } },
+            },
+        }),
+        (db as any).subContract.findMany({
+            where: { projectId },
+            include: {
+                vendor: true,
+                milestones: { orderBy: { createdAt: "asc" } },
+            },
+            orderBy: { contractDate: "desc" },
+        }),
+    ])
+
+    const laborHours = timeLogsRaw.reduce((s: number, l: any) => s + (l.hoursLogged || 0), 0)
+    const laborCost = timeLogsRaw.reduce(
+        (s: number, l: any) => s + (l.hoursLogged || 0) * (l.user?.profile?.hourlyRate || 0),
+        0,
+    )
+    const subContracts = JSON.parse(JSON.stringify(subContractsRaw))
+
+    return (
+        <FinancialsTab
+            project={project}
+            invoices={project.invoices || []}
+            variationOrders={project.variationOrders || []}
+            subContracts={subContracts}
+            costReport={costReport}
+            plData={plData}
+            laborCost={{ totalHours: laborHours, totalCost: laborCost }}
+            canEdit={canEdit}
+            canApproveFinance={canApproveFinance}
+        />
+    )
+}
+
+// ── Page ─────────────────────────────────────────────────────────────────
+export default async function ProjectDetailsPage({
+    params,
+    searchParams,
+}: {
+    params: Promise<{ projectId: string }>
+    searchParams: Promise<{ tab?: string }>
+}) {
     const session = await auth()
     const user = session?.user as any
-
-    if (!user) return redirect('/login')
+    if (!user) return redirect("/login")
 
     const { projectId } = await params
     const { tab } = await searchParams
 
-    // Cast db to any to avoid TS error
-    const projectData = await (db as any).project.findUnique({
-        where: { id: projectId },
-        include: {
-            brand: true,
-            client: true,
-            engineers: true,
-            tasks: {
-                include: {
-                    assignees: true
+    // ── Parallel: lean project shell + engineers ──────────────────────────
+    const [projectData, allEngineers] = await Promise.all([
+        (db as any).project.findUnique({
+            where: { id: projectId },
+            select: {
+                id: true, name: true, code: true, contractValue: true,
+                serviceType: true, status: true, driveLink: true, driveFolderId: true,
+                legacyClientName: true,
+                brand: { select: { id: true, nameEn: true, nameAr: true, logoUrl: true } },
+                client: { select: { id: true, name: true } },
+                engineers: { select: { id: true, name: true, role: true } },
+                milestones: true,
+                invoices: { orderBy: { date: "desc" } },
+                variationOrders: { orderBy: { createdAt: "desc" } },
+                designStages: {
+                    select: {
+                        id: true, name: true, progress: true, order: true,
+                        startDate: true, endDate: true,
+                        assignees: { select: { id: true, name: true } },
+                    },
+                    orderBy: { order: "asc" },
                 },
-                orderBy: { start: 'asc' }
-            },
-            milestones: true,
-            designStages: {
-                include: {
-                    assignees: { select: { id: true, name: true } }
+                drawings: {
+                    select: {
+                        id: true, title: true, drawingCode: true, discipline: true,
+                    },
                 },
-                orderBy: { order: 'asc' }
             },
-            drawings: {
-                include: {
-                    revisions: {
-                        include: {
-                            comments: { include: { user: true }, orderBy: { createdAt: 'desc' } }
-                        }
-                    }
-                }
-            },
-            invoices: { orderBy: { date: 'desc' } },
-            variationOrders: { orderBy: { createdAt: 'desc' } }
-        }
-    })
+        }),
+        (db as any).user.findMany({
+            where: { role: { not: "ADMIN" } },
+            select: { id: true, name: true, role: true },
+        }),
+    ])
 
     if (!projectData) {
         return <div>Project not found</div>
     }
 
-    const allEngineers = await (db as any).user.findMany({
-        where: { role: { not: 'ADMIN' } }, // Assuming non-admins are engineers for now
-        select: { id: true, name: true, role: true }
-    })
-
-    // Serialize to avoid Date object issues with Client Components
     const project = JSON.parse(JSON.stringify(projectData))
     const engineers = JSON.parse(JSON.stringify(allEngineers))
 
-    const costReport = await getProjectCostReport(projectId)
-    const plData = await getProjectPL(projectId)
-
-    // Fetch sub-contracts with vendor + milestones for the Vendors panel
-    const subContractsRaw = await (db as any).subContract.findMany({
-        where: { projectId },
-        include: {
-            vendor: true,
-            milestones: { orderBy: { createdAt: 'asc' } }
-        },
-        orderBy: { contractDate: 'desc' }
-    })
-    const subContracts = JSON.parse(JSON.stringify(subContractsRaw))
-
-    // canApproveFinance: ADMIN/SUPER_ADMIN always can; others filtered by role list
-    const isAdmin = user.role === 'ADMIN' || user.role === 'SUPER_ADMIN' || user.role === 'GLOBAL_SUPER_ADMIN'
-    const canApproveFinance = isAdmin || ['ACCOUNTANT'].includes(user.role)
+    const isAdmin = ["ADMIN", "SUPER_ADMIN", "GLOBAL_SUPER_ADMIN"].includes(user.role)
+    const canApproveFinance = isAdmin || user.role === "ACCOUNTANT"
 
     return (
         <div className="space-y-6">
@@ -111,7 +171,9 @@ export default async function ProjectDetailsPage({ params, searchParams }: { par
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight">{project.name}</h1>
                     <div className="flex items-center gap-2 mt-1">
-                        <p className="text-muted-foreground">{project.code} • {project.client?.name || project.legacyClientName}</p>
+                        <p className="text-muted-foreground">
+                            {project.code} • {project.client?.name || project.legacyClientName}
+                        </p>
                         <Badge variant="outline" className="border-primary/20 text-primary bg-primary/5">
                             {project.serviceType}
                         </Badge>
@@ -128,17 +190,20 @@ export default async function ProjectDetailsPage({ params, searchParams }: { par
                     </div>
                 </div>
                 <div className="flex gap-2">
-                    <DriveSyncButton projectId={project.id} isLinked={!!project.driveFolderId && !project.driveFolderId.startsWith('mock_')} />
+                    <DriveSyncButton
+                        projectId={project.id}
+                        isLinked={!!project.driveFolderId && !project.driveFolderId.startsWith("mock_")}
+                    />
                     <PrintButton />
                     <EditProjectDialog project={project} allEngineers={engineers} />
                 </div>
             </div>
 
-            {/* Printable Report Header - Visible only in Print */}
+            {/* Printable Report Header */}
             <div className="hidden print:block mb-8 border-b-2 border-primary pb-4">
                 <div className="flex justify-between items-center">
                     <div>
-                        <h1 className="text-4xl font-bold text-primary">{project.brand.nameEn}</h1>
+                        <h1 className="text-4xl font-bold text-primary">{project.brand?.nameEn ?? project.name}</h1>
                         <p className="text-gray-500 text-sm">Architectural & Engineering Consultancy</p>
                     </div>
                     <div className="text-right">
@@ -155,7 +220,9 @@ export default async function ProjectDetailsPage({ params, searchParams }: { par
                         <CardTitle className="text-sm font-medium">Contract Value</CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">{Number(project.contractValue).toLocaleString()} SAR</div>
+                        <div className="text-2xl font-bold">
+                            {Number(project.contractValue).toLocaleString()} SAR
+                        </div>
                     </CardContent>
                 </Card>
                 <Card>
@@ -163,7 +230,7 @@ export default async function ProjectDetailsPage({ params, searchParams }: { par
                         <CardTitle className="text-sm font-medium">Brand</CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">{project.brand.nameEn}</div>
+                        <div className="text-2xl font-bold">{project.brand?.nameEn ?? "—"}</div>
                     </CardContent>
                 </Card>
                 <Card>
@@ -172,8 +239,8 @@ export default async function ProjectDetailsPage({ params, searchParams }: { par
                     </CardHeader>
                     <CardContent>
                         <div className="flex flex-wrap gap-1">
-                            {project.engineers.map((Eng: any) => (
-                                <Badge key={Eng.id} variant="secondary">{Eng.name}</Badge>
+                            {project.engineers.map((eng: any) => (
+                                <Badge key={eng.id} variant="secondary">{eng.name}</Badge>
                             ))}
                         </div>
                     </CardContent>
@@ -182,23 +249,31 @@ export default async function ProjectDetailsPage({ params, searchParams }: { par
 
             <Tabs defaultValue={tab || "overview"} className="w-full">
                 <TabsList className="w-full justify-start h-12 bg-muted/50 p-1 rounded-2xl">
-                    <TabsTrigger value="overview" className="rounded-xl data-[state=active]:bg-white data-[state=active]:shadow-sm">Overview</TabsTrigger>
-
-                    {(project.serviceType === 'DESIGN' || project.serviceType === 'BOTH') && (
+                    <TabsTrigger value="overview" className="rounded-xl data-[state=active]:bg-white data-[state=active]:shadow-sm">
+                        Overview
+                    </TabsTrigger>
+                    {(project.serviceType === "DESIGN" || project.serviceType === "BOTH") && (
                         <>
-                            <TabsTrigger value="design" className="rounded-xl data-[state=active]:bg-white data-[state=active]:shadow-sm">Design Stages</TabsTrigger>
-                            <TabsTrigger value="documents" className="rounded-xl data-[state=active]:bg-white data-[state=active]:shadow-sm">Drawings</TabsTrigger>
+                            <TabsTrigger value="design" className="rounded-xl data-[state=active]:bg-white data-[state=active]:shadow-sm">
+                                Design Stages
+                            </TabsTrigger>
+                            <TabsTrigger value="documents" className="rounded-xl data-[state=active]:bg-white data-[state=active]:shadow-sm">
+                                Drawings
+                            </TabsTrigger>
                         </>
                     )}
-
-                    {(project.serviceType === 'SUPERVISION' || project.serviceType === 'BOTH') && (
-                        <TabsTrigger value="supervision" className="rounded-xl data-[state=active]:bg-white data-[state=active]:shadow-sm">Supervision</TabsTrigger>
+                    {(project.serviceType === "SUPERVISION" || project.serviceType === "BOTH") && (
+                        <TabsTrigger value="supervision" className="rounded-xl data-[state=active]:bg-white data-[state=active]:shadow-sm">
+                            Supervision
+                        </TabsTrigger>
                     )}
-
-                    <TabsTrigger value="files" className="rounded-xl data-[state=active]:bg-white data-[state=active]:shadow-sm">Files</TabsTrigger>
-
-                    {['ADMIN', 'SUPER_ADMIN', 'GLOBAL_SUPER_ADMIN', 'ACCOUNTANT', 'CEO'].includes(user.role) && (
-                        <TabsTrigger value="financials" className="rounded-xl data-[state=active]:bg-white data-[state=active]:shadow-sm">Financials</TabsTrigger>
+                    <TabsTrigger value="files" className="rounded-xl data-[state=active]:bg-white data-[state=active]:shadow-sm">
+                        Files
+                    </TabsTrigger>
+                    {["ADMIN", "SUPER_ADMIN", "GLOBAL_SUPER_ADMIN", "ACCOUNTANT", "CEO"].includes(user.role) && (
+                        <TabsTrigger value="financials" className="rounded-xl data-[state=active]:bg-white data-[state=active]:shadow-sm">
+                            Financials
+                        </TabsTrigger>
                     )}
                 </TabsList>
 
@@ -210,28 +285,28 @@ export default async function ProjectDetailsPage({ params, searchParams }: { par
                             <p className="text-muted-foreground text-sm">Gantt Chart & Tasks</p>
                         </div>
                         <div className="flex gap-2 print:hidden">
-                            <NewTaskDialog projectId={project.id} engineers={project.engineers} designStages={project.designStages || []} />
+                            <NewTaskDialog
+                                projectId={project.id}
+                                engineers={project.engineers}
+                                designStages={project.designStages || []}
+                            />
                         </div>
                     </div>
 
-                    <Card className="border-none shadow-xl bg-white rounded-3xl overflow-hidden">
-                        <CardContent className="p-0">
-                            <ProjectGanttChart tasks={project.tasks} project={project} stages={project.designStages} />
-                        </CardContent>
-                    </Card>
-
-                    <Card className="border-none shadow-xl bg-white rounded-3xl">
-                        <CardHeader>
-                            <CardTitle>Task List</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                            <TaskList tasks={project.tasks} engineers={project.engineers} designStages={project.designStages || []} />
-                        </CardContent>
-                    </Card>
+                    <Suspense
+                        fallback={
+                            <div className="space-y-4">
+                                <div className="h-64 w-full rounded-3xl bg-muted animate-pulse" />
+                                <div className="h-40 w-full rounded-3xl bg-muted animate-pulse" />
+                            </div>
+                        }
+                    >
+                        <GanttSection projectId={projectId} project={project} />
+                    </Suspense>
                 </TabsContent>
 
                 {/* DESIGN TAB */}
-                {(project.serviceType === 'DESIGN' || project.serviceType === 'BOTH') && (
+                {(project.serviceType === "DESIGN" || project.serviceType === "BOTH") && (
                     <>
                         <TabsContent value="design" className="mt-6">
                             <DesignStagesTab projectId={project.id} engineers={engineers} />
@@ -247,7 +322,7 @@ export default async function ProjectDetailsPage({ params, searchParams }: { par
                 )}
 
                 {/* SUPERVISION TAB */}
-                {(project.serviceType === 'SUPERVISION' || project.serviceType === 'BOTH') && (
+                {(project.serviceType === "SUPERVISION" || project.serviceType === "BOTH") && (
                     <TabsContent value="supervision" className="mt-6">
                         <SupervisionWorkspace projectId={project.id} projectName={project.name} />
                     </TabsContent>
@@ -255,26 +330,27 @@ export default async function ProjectDetailsPage({ params, searchParams }: { par
 
                 {/* FILES TAB */}
                 <TabsContent value="files" className="mt-6">
-                    <ProjectFilesTab projectId={project.id} driveLink={project.driveLink} driveFolderId={project.driveFolderId} />
+                    <ProjectFilesTab
+                        projectId={project.id}
+                        driveLink={project.driveLink}
+                        driveFolderId={project.driveFolderId}
+                    />
                 </TabsContent>
 
                 {/* FINANCIALS TAB */}
-                {['ADMIN', 'SUPER_ADMIN', 'GLOBAL_SUPER_ADMIN', 'ACCOUNTANT', 'CEO'].includes(user.role) && (
+                {["ADMIN", "SUPER_ADMIN", "GLOBAL_SUPER_ADMIN", "ACCOUNTANT", "CEO"].includes(user.role) && (
                     <TabsContent value="financials" className="mt-6">
-                        <FinancialsTab
-                            project={project}
-                            milestones={project.milestones || []}
-                            invoices={project.invoices || []}
-                            variationOrders={project.variationOrders || []}
-                            subContracts={subContracts}
-                            costReport={costReport}
-                            plData={plData}
-                            canEdit={['ADMIN', 'SUPER_ADMIN', 'ACCOUNTANT'].includes(user.role)}
-                            canApproveFinance={canApproveFinance}
-                        />
+                        <Suspense fallback={<div className="h-40 w-full rounded-3xl bg-muted animate-pulse" />}>
+                            <FinancialsSection
+                                projectId={projectId}
+                                project={project}
+                                canEdit={["ADMIN", "SUPER_ADMIN", "ACCOUNTANT"].includes(user.role)}
+                                canApproveFinance={canApproveFinance}
+                            />
+                        </Suspense>
                     </TabsContent>
                 )}
             </Tabs>
-        </div >
+        </div>
     )
 }

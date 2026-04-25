@@ -2,9 +2,9 @@
 
 import { db } from "@/lib/db"
 import { revalidatePath } from "next/cache"
-import { getDriveSettings } from "@/lib/google-drive"
+import { getDriveSettings, clearDriveCache } from "@/lib/google-drive"
 import { google } from "googleapis"
-import { checkPermission } from "@/lib/rbac"
+import { checkPermission, hasPermission } from "@/lib/rbac"
 import { auth } from "@/auth"
 
 export async function getSystemSettings() {
@@ -12,19 +12,29 @@ export async function getSystemSettings() {
         const session = await auth()
         const tenantId = (session?.user as any)?.tenantId as string | undefined
 
+        // Only fall back to "default-tenant" for authenticated sessions —
+        // unauthenticated callers (login page) must not trigger tenant creation.
+        const currentTenantId = tenantId && tenantId !== "system" ? tenantId : null
         let profile: any = null
 
         // "system" is the virtual tenantId used by the Super Admin emergency
         // bypass — no real Tenant row exists for it, so skip DB entirely.
-        if (tenantId && tenantId !== "system") {
+        if (currentTenantId) {
+            // Ensure the Tenant row exists before touching any FK-constrained table
+            await (db as any).tenant.upsert({
+                where: { id: currentTenantId },
+                update: {},
+                create: { id: currentTenantId, name: 'FTS Office', slug: currentTenantId }
+            })
+
             // Tenant-scoped lookup — each tenant has their own CompanyProfile
             profile = await (db as any).companyProfile.findFirst({
-                where: { tenantId }
+                where: { tenantId: currentTenantId }
             })
             if (!profile) {
                 profile = await (db as any).companyProfile.create({
                     data: {
-                        tenantId,
+                        tenantId: currentTenantId,
                         companyNameAr: "اسم الشركة",
                         companyNameEn: "Company Name",
                         vatPercentage: 15,
@@ -52,6 +62,13 @@ export async function getSystemSettings() {
             contactEmail: null,
             contactPhone: null,
             address: null,
+            buildingNumber: null,
+            streetName: null,
+            district: null,
+            city: null,
+            postalCode: null,
+            additionalNumber: null,
+            zatcaApiToken: null,
             driveClientId: null,
             driveClientSecret: null,
             driveRefreshToken: null,
@@ -73,6 +90,13 @@ export async function getSystemSettings() {
             contactEmail: null,
             contactPhone: null,
             address: null,
+            buildingNumber: null,
+            streetName: null,
+            district: null,
+            city: null,
+            postalCode: null,
+            additionalNumber: null,
+            zatcaApiToken: null,
             driveClientId: null,
             driveClientSecret: null,
             driveRefreshToken: null,
@@ -81,6 +105,19 @@ export async function getSystemSettings() {
             workingDaysPerWeek: 5,
             weekendDays: "Friday,Saturday"
         }
+    }
+}
+
+export async function getProjectTypes() {
+    try {
+        const types = await (db as any).projectType.findMany({
+            where: { isActive: true },
+            orderBy: { nameEn: 'asc' }
+        })
+        return types
+    } catch (error) {
+        console.error("Error fetching project types:", error)
+        return []
     }
 }
 
@@ -115,6 +152,13 @@ export async function updateSystemSettings(formData: FormData) {
         const contactEmail = formData.get("contactEmail") as string || null
         const contactPhone = formData.get("contactPhone") as string || null
         const address = formData.get("address") as string || null
+        const buildingNumber = formData.get("buildingNumber") as string || null
+        const streetName = formData.get("streetName") as string || null
+        const district = formData.get("district") as string || null
+        const city = formData.get("city") as string || null
+        const postalCode = formData.get("postalCode") as string || null
+        const additionalNumber = formData.get("additionalNumber") as string || null
+        const zatcaApiToken = formData.get("zatcaApiToken") as string || null
         const driveClientId = formData.get("driveClientId") as string || null
         const driveClientSecret = formData.get("driveClientSecret") as string || null
         const driveRefreshToken = formData.get("driveRefreshToken") as string || null
@@ -125,7 +169,9 @@ export async function updateSystemSettings(formData: FormData) {
         const weekendDays = formData.get("weekendDays") as string || "Friday,Saturday"
 
         const session = await auth()
-        const tenantId = (session?.user as any)?.tenantId as string | undefined
+        if (!session?.user) return { error: "Unauthorized" }
+        const tenantId = (session.user as any)?.tenantId as string | undefined
+        const currentTenantId = tenantId && tenantId !== "system" ? tenantId : null
 
         const updateData = {
             ...(companyNameAr && { companyNameAr }),
@@ -133,25 +179,34 @@ export async function updateSystemSettings(formData: FormData) {
             vatNumber, vatPercentage,
             ...(defaultCurrency && { defaultCurrency }),
             contactEmail, contactPhone, address,
+            buildingNumber, streetName, district, city, postalCode, additionalNumber, zatcaApiToken,
             driveClientId, driveClientSecret, driveRefreshToken, driveFolderId,
             logoUrl,
             workingHoursPerDay, workingDaysPerWeek, weekendDays
         }
 
-        if (tenantId) {
+        if (currentTenantId) {
+            // Ensure the Tenant row exists before touching any FK-constrained table
+            await (db as any).tenant.upsert({
+                where: { id: currentTenantId },
+                update: {},
+                create: { id: currentTenantId, name: 'FTS Office', slug: currentTenantId }
+            })
+
             // Per-tenant: find and update, or create new
-            const existing = await (db as any).companyProfile.findFirst({ where: { tenantId } })
+            const existing = await (db as any).companyProfile.findFirst({ where: { tenantId: currentTenantId } })
             if (existing) {
                 await (db as any).companyProfile.update({ where: { id: existing.id }, data: updateData })
             } else {
                 await (db as any).companyProfile.create({
                     data: {
-                        tenantId,
+                        tenantId: currentTenantId,
                         companyNameAr: companyNameAr || "Company Name",
                         companyNameEn: companyNameEn || "Company Name",
                         vatNumber, vatPercentage: vatPercentage || 15,
                         defaultCurrency: defaultCurrency || "SAR",
                         contactEmail, contactPhone, address,
+                        buildingNumber, streetName, district, city, postalCode, additionalNumber, zatcaApiToken,
                         driveClientId, driveClientSecret, driveRefreshToken, driveFolderId,
                         logoUrl,
                         workingHoursPerDay, workingDaysPerWeek, weekendDays
@@ -169,6 +224,7 @@ export async function updateSystemSettings(formData: FormData) {
                     vatNumber, vatPercentage: vatPercentage || 15,
                     defaultCurrency: defaultCurrency || "SAR",
                     contactEmail, contactPhone, address,
+                    buildingNumber, streetName, district, city, postalCode, additionalNumber, zatcaApiToken,
                     driveClientId, driveClientSecret, driveRefreshToken, driveFolderId,
                     logoUrl,
                     workingHoursPerDay, workingDaysPerWeek, weekendDays
@@ -216,6 +272,20 @@ export async function upsertSystemLookup(formData: FormData) {
     }
 }
 
+export async function deleteSystemLookup(id: string) {
+    const isAllowed = await checkPermission('SETTINGS', 'write')
+    if (!isAllowed) return { error: "Unauthorized" }
+
+    try {
+        await (db as any).systemLookup.delete({ where: { id } })
+        revalidatePath('/admin/settings/general')
+        return { success: true }
+    } catch (e: any) {
+        console.error("Failed to delete lookup:", e)
+        return { error: e.message }
+    }
+}
+
 export async function toggleSystemLookup(id: string, currentlyActive: boolean) {
     const isAllowed = await checkPermission('SETTINGS', 'write')
     if (!isAllowed) return { error: "Unauthorized" }
@@ -230,6 +300,49 @@ export async function toggleSystemLookup(id: string, currentlyActive: boolean) {
     } catch (e: any) {
         console.error("Failed to toggle lookup:", e)
         return { error: e.message }
+    }
+}
+
+export async function saveDriveCredentials(data: {
+    driveClientId: string
+    driveClientSecret: string
+    driveRefreshToken: string
+    driveRootFolderId: string
+}) {
+    // GLOBAL_SUPER_ADMIN is covered by hasPermission returning true unconditionally.
+    const canManage = await hasPermission('system', 'manageSettings')
+    if (!canManage) return { error: "Unauthorized: Requires Settings management permission" }
+
+    const session = await auth()
+    const tenantId = (session?.user as any)?.tenantId as string | undefined
+
+    // Drive credentials live on the Tenant row (read by getDriveSettings).
+    // The "system" virtual tenant used by the emergency GSA has no real row.
+    if (!tenantId || tenantId === 'system') {
+        return { error: "No tenant context — log in as a tenant admin to configure Drive credentials" }
+    }
+
+    const { driveClientId, driveClientSecret, driveRefreshToken, driveRootFolderId } = data
+
+    if (!driveClientId || !driveClientSecret || !driveRefreshToken || !driveRootFolderId) {
+        return { error: "All four Drive credential fields are required" }
+    }
+
+    try {
+        await (db as any).tenant.update({
+            where: { id: tenantId },
+            data: { driveClientId, driveClientSecret, driveRefreshToken, driveRootFolderId },
+        })
+
+        // Evict the cached OAuth2 Drive instance so the next Drive call picks up
+        // the new credentials immediately without requiring a server restart.
+        clearDriveCache(tenantId)
+
+        revalidatePath('/admin/settings/general')
+        return { success: true }
+    } catch (e: any) {
+        console.error("saveDriveCredentials error:", e)
+        return { error: e.message || "Failed to save Drive credentials" }
     }
 }
 

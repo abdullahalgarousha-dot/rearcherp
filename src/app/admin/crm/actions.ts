@@ -31,7 +31,10 @@ export type ClientDTO = {
     id: string
     clientCode: string
     name: string
+    clientType: "INDIVIDUAL" | "COMPANY"
     taxNumber: string | null
+    crNumber: string | null
+    nationalAddress: string | null
     phone: string | null
     email: string | null
     address: string | null
@@ -111,7 +114,10 @@ export async function updateClient(clientId: string, data: Partial<ClientDTO>) {
         where: { id: clientId, tenantId },
         data: {
             name: data.name,
+            clientType: data.clientType,
             taxNumber: data.taxNumber,
+            crNumber: data.crNumber,
+            nationalAddress: data.nationalAddress,
             phone: data.phone,
             email: data.email,
             address: data.address
@@ -140,8 +146,11 @@ export async function createClient(data: Partial<ClientDTO>) {
             data: {
                 tenantId,
                 clientCode: code,
-                name: data.name.trim(),
+                name: data.name!.trim(),
+                clientType: data.clientType || 'COMPANY',
                 taxNumber: data.taxNumber || null,
+                crNumber: data.crNumber || null,
+                nationalAddress: data.nationalAddress || null,
                 phone: data.phone || null,
                 email: data.email || null,
                 address: data.address || null,

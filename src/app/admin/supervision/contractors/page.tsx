@@ -9,13 +9,18 @@ import { NewContractorDialog } from "../../../../components/supervision/new-cont
 
 export default async function ContractorsPage() {
     const session = await auth()
-    const userRole = (session?.user as any)?.role
+    const user = session?.user as any
+    const userRole = user?.role
+    const tenantId = user?.tenantId
 
     if (userRole !== 'ADMIN' && userRole !== 'PM') {
         redirect('/admin/supervision')
     }
 
+    if (!tenantId) redirect('/login')
+
     const contractors = await db.contractor.findMany({
+        where: { tenantId },
         orderBy: { companyName: 'asc' }
     })
 

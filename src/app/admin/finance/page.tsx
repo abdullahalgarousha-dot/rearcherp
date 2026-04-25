@@ -1,5 +1,6 @@
 import { auth } from "@/auth"
 import { redirect } from "next/navigation"
+import { hasPermission } from "@/lib/rbac"
 import { getFinancialStatement, getTaxReport, createInvoice, createExpense } from "./actions"
 import { getSystemSettings } from "@/app/actions/settings"
 import { getProjectCosts } from "./project-costs/actions"
@@ -17,6 +18,7 @@ import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { IssueInvoiceForm } from "./invoice-form"
 import {
     TrendingUp, TrendingDown, Plus, FileText, Download, Calendar,
     ArrowUpRight, ArrowDownRight, AlertCircle, BarChart3, Wallet,
@@ -43,9 +45,10 @@ export default async function FinanceHub({
     const session = await auth()
     const userRole = (session?.user as any)?.role
 
-    if (!['ADMIN', 'ACCOUNTANT', 'GLOBAL_SUPER_ADMIN', 'SUPER_ADMIN'].includes(userRole)) {
-        redirect('/')
-    }
+    // Gate on the PermissionMatrix flag, not on a hardcoded role list.
+    // hasPermission returns true for GLOBAL_SUPER_ADMIN unconditionally.
+    const canViewFinance = await hasPermission('finance', 'masterVisible')
+    if (!canViewFinance) redirect('/')
 
     const { tab, start, end, q } = await searchParams
 
@@ -196,7 +199,7 @@ export default async function FinanceHub({
             }),
             (db as any).project.findMany({
                 where: tenantFilter,
-                select: { id: true, name: true, code: true }
+                select: { id: true, name: true, code: true, client: { select: { clientType: true } } }
             })
         ])
     }
@@ -544,39 +547,7 @@ export default async function FinanceHub({
                             </CardTitle>
                         </CardHeader>
                         <CardContent>
-                            <form action={createInvoice as any} className="space-y-4">
-                                <div className="grid gap-2">
-                                    <Label htmlFor="invoiceNumber">Invoice #</Label>
-                                    <Input id="invoiceNumber" name="invoiceNumber" required placeholder="INV-2026-001" />
-                                </div>
-                                <div className="grid gap-2">
-                                    <Label htmlFor="description">Description</Label>
-                                    <Input id="description" name="description" required placeholder="Payment milestone / Progress claim" />
-                                </div>
-                                <div className="grid gap-2">
-                                    <Label htmlFor="projectId">Project</Label>
-                                    <Select name="projectId" required>
-                                        <SelectTrigger><SelectValue placeholder="Select project" /></SelectTrigger>
-                                        <SelectContent>
-                                            {projectsForForm.map((p: any) => (
-                                                <SelectItem key={p.id} value={p.id}>{p.code} – {p.name}</SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-                                <div className="grid gap-2">
-                                    <Label htmlFor="subtotal">Base Amount (SAR)</Label>
-                                    <Input id="subtotal" name="subtotal" type="number" step="0.01" required placeholder="0.00" />
-                                    <p className="text-[10px] text-slate-400">15% VAT will be added automatically</p>
-                                </div>
-                                <div className="grid gap-2">
-                                    <Label htmlFor="date">Issue Date</Label>
-                                    <Input id="date" name="date" type="date" defaultValue={new Date().toISOString().split('T')[0]} />
-                                </div>
-                                <Button type="submit" className="w-full rounded-xl bg-primary hover:bg-primary/90 font-bold">
-                                    Save & Issue Invoice
-                                </Button>
-                            </form>
+                            <IssueInvoiceForm projectsForForm={projectsForForm} />
                         </CardContent>
                     </Card>
 

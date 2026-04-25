@@ -8,6 +8,11 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
+enum ClientType {
+  INDIVIDUAL
+  COMPANY
+}
+
 model SubscriptionPlan {
   id             String   @id @default(cuid())
   name           String   @unique
@@ -61,10 +66,13 @@ model Tenant {
   inAppNotifications InAppNotification[]
   inspectionRequests InspectionRequest[]
   invoices           Invoice[]
+  invoiceItems       InvoiceItem[]
   leaveRequests      LeaveRequest[]
   loans              Loan[]
-  loanRequests       LoanRequest[]
-  loginAttempts      LoginAttempt[]
+  loanRequests         LoanRequest[]
+  permissionRequests   PermissionRequest[]
+  disciplinaryActions  DisciplinaryAction[]
+  loginAttempts        LoginAttempt[]
   materialSubmittals MaterialSubmittal[]
   menuLinks          MenuLink[]
   milestones         Milestone[]
@@ -82,25 +90,38 @@ model Tenant {
   systemLookups      SystemLookup[]
   systemSettings     SystemSetting[]
   tasks              Task[]
+  taskComments       TaskComment[]
   plan               SubscriptionPlan?       @relation(fields: [planId], references: [id])
   timeLogs           TimeLog[]
   users              User[]
+  workLogs           WorkLog[]
   variationOrders    VariationOrder[]
   teams              Team[]
   employeeTasks      EmployeeTask[]
   vendors            Vendor[]
   vendorContracts    VendorContract[]
+  leads              Lead[]
+  proposals          Proposal[]
+  proposalRevisions  ProposalRevision[]
+  reportAttendees    ReportAttendee[]
+  rolePermissions    RolePermission[]
+  loanPayments       LoanPayment[]
+  financialLedger    FinancialLedger[]
+  kpiEvaluations     KpiEvaluation[]
+  financeAuditTrails FinanceAuditTrail[]
+  projectTypes       ProjectType[]
 }
 
 model User {
   id                    String                  @id @default(cuid())
-  tenantId              String                  @default("t_undefined")
+  tenantId              String
   name                  String?
   email                 String                  @unique
   emailVerified         DateTime?
   image                 String?
   password              String?
   role                  String                  @default("SITE_ENGINEER")
+  accessScope           String                  @default("ALL")             // BRANCH | ALL
   twoFactorSecret       String?
   twoFactorEnabled      Boolean                 @default(false)
   roleId                String?
@@ -141,6 +162,7 @@ model User {
   assignedStages        DesignStage[]           @relation("DesignStageUsers")
   projects              Project[]               @relation("ProjectEngineers")
   assignedTasks         Task[]                  @relation("TaskAssignees")
+  taskComments          TaskComment[]
 
   // Reporting line (direct manager within the User table)
   managerId    String?
@@ -152,12 +174,16 @@ model User {
   ledTeams              Team[]         @relation("TeamLeader")
   assignedEmployeeTasks EmployeeTask[] @relation("EmployeeTaskAssignee")
   createdEmployeeTasks  EmployeeTask[] @relation("EmployeeTaskCreator")
+  permissionRequests    PermissionRequest[]
+  disciplinaryActions   DisciplinaryAction[]
+  kpiEvaluations        KpiEvaluation[]         @relation("UserKPIs")
+  evaluatedKPIs         KpiEvaluation[]         @relation("EvaluatorKPIs")
 }
 
 model EmployeeProfile {
   id                 String            @id @default(cuid())
   userId             String            @unique
-  employeeCode       String?           @unique
+  employeeCode       String?
   department         String
   position           String
   directManagerId    String?
@@ -170,6 +196,7 @@ model EmployeeProfile {
   passportExpiry     DateTime?
   hireDate           DateTime?
   leaveBalance       Int               @default(21)
+  employmentType     String            @default("PERMANENT") // PERMANENT | CONTRACT | PROBATION
   insuranceProvider  String?
   insurancePolicy    String?
   insuranceExpiry    DateTime?
@@ -188,7 +215,7 @@ model EmployeeProfile {
   branchId           String?
   createdAt          DateTime          @default(now())
   updatedAt          DateTime          @updatedAt
-  tenantId           String            @default("t_undefined")
+  tenantId           String
   complaints         Complaint[]
   documentRequests   DocumentRequest[]
   hrStats            EmployeeHRStats?
@@ -201,22 +228,27 @@ model EmployeeProfile {
   loans              LoanRequest[]
   penalties          Penalty[]
   salarySlips        SalarySlip[]
+
+  @@unique([tenantId, employeeCode])
 }
 
 model Role {
   id               String   @id @default(cuid())
-  tenantId         String   @default("t_undefined")
-  name             String   @unique
+  tenantId         String
+  name             String
   description      String?
   permissionMatrix String
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
   tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   users            User[]
+
+  @@unique([tenantId, name])
 }
 
 model RolePermission {
   id         String   @id @default(cuid())
+  tenantId   String
   roleName   String
   module     String
   canRead    Boolean  @default(false)
@@ -224,34 +256,34 @@ model RolePermission {
   canApprove Boolean  @default(false)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  @@unique([roleName, module])
-}
-
-model SystemSettings {
-  id                String   @id @default(cuid())
-  key               String   @unique
-  value             String
-  description       String?
-  driveClientId     String?
-  driveClientSecret String?
-  driveRefreshToken String?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  @@unique([tenantId, roleName, module])
 }
 
 model CompanyProfile {
   id                 String   @id @default(cuid())
-  tenantId           String   @default("t_undefined")
+  tenantId           String
   companyNameAr      String   @default("اسم الشركة")
   companyNameEn      String   @default("Company Name")
   logoUrl            String?
   vatNumber          String?
+  crNumber           String?
+  nationalAddress    String?
   vatPercentage      Float    @default(15)
   defaultCurrency    String   @default("SAR")
   contactEmail       String?
   contactPhone       String?
   address            String?
+
+  // ZATCA & National Address fields
+  buildingNumber     String?
+  streetName         String?
+  district           String?
+  city               String?
+  postalCode         String?
+  additionalNumber   String?
+  zatcaApiToken      String?
   driveClientId      String?
   driveClientSecret  String?
   driveRefreshToken  String?
@@ -266,7 +298,7 @@ model CompanyProfile {
 
 model LeaveRequest {
   id              String   @id @default(cuid())
-  tenantId        String   @default("t_undefined")
+  tenantId        String
   userId          String
   type            String
   startDate       DateTime
@@ -287,7 +319,7 @@ model LeaveRequest {
 
 model Brand {
   id            String    @id @default(cuid())
-  tenantId      String    @default("t_undefined")
+  tenantId      String
   nameEn        String
   nameAr        String
   shortName     String?
@@ -298,6 +330,7 @@ model Brand {
   taxNumber     String?
   crNumber      String?
   abbreviation  String? // Prefix for ID generation (e.g., 'FTS')
+  nationalAddress String? // ZATCA National Address
   isDefault     Boolean   @default(false)
   email         String?
   phone         String?
@@ -312,12 +345,14 @@ model Brand {
   updatedAt     DateTime  @updatedAt
   tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   projects      Project[]
+  leads         Lead[]
+  proposals     Proposal[]
 }
 
 model Project {
   id                    String                  @id @default(cuid())
-  tenantId              String                  @default("t_undefined")
-  code                  String                  @unique
+  tenantId              String
+  code                  String
   name                  String
   legacyClientName      String?                 @map("client")
   legacyClientAddr      String?                 @map("clientAddress")
@@ -334,7 +369,7 @@ model Project {
   totalDuration         Int?
   contractDuration      Int?
   completionPercent     Float                   @default(0)
-  brandId               String
+  brandId               String?
   branchId              String?
   year                  Int
   sequence              Int
@@ -359,7 +394,7 @@ model Project {
   pettyCashRequests     PettyCashRequest[]
   custodySettlements    CustodySettlementItem[]
   branch                Branch?                 @relation(fields: [branchId], references: [id])
-  brand                 Brand                   @relation(fields: [brandId], references: [id])
+  brand                 Brand?                  @relation(fields: [brandId], references: [id], onDelete: SetNull)
   client                Client?                 @relation(fields: [clientId], references: [id])
   leadEngineer          User?                   @relation("LeadEngineer", fields: [leadEngineerId], references: [id])
   tenant                Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -370,8 +405,13 @@ model Project {
   variationOrders       VariationOrder[]
   vendorContracts       VendorContract[]
   workLogs              WorkLog[]
+  financialLedgers      FinancialLedger[]
   engineers             User[]                  @relation("ProjectEngineers")
+  projectTypeId         String?
+  projectType           ProjectType?            @relation(fields: [projectTypeId], references: [id])
   employeeTasks         EmployeeTask[]
+
+  @@unique([tenantId, code])
 }
 
 model ProjectContractor {
@@ -391,7 +431,7 @@ model ProjectContractor {
 
 model Contractor {
   id                 String              @id @default(cuid())
-  tenantId           String              @default("t_undefined")
+  tenantId           String
   companyName        String
   contactPerson      String?
   phone              String?
@@ -410,29 +450,48 @@ model Contractor {
 }
 
 model Task {
-  id            String       @id @default(cuid())
-  tenantId      String       @default("t_undefined")
-  projectId     String
+  id            String        @id @default(cuid())
+  tenantId      String
+  projectId     String?
   title         String
   description   String?
-  status        String       @default("TODO")
-  start         DateTime     @default(now())
-  end           DateTime     @default(now())
-  progress      Float        @default(0)
+  status        String        @default("TO_DO")
+  start         DateTime      @default(now())
+  end           DateTime      @default(now())
+  progress      Float         @default(0)
   dependencies  String?
-  type          String       @default("OFFICE")
+  type          String        @default("OFFICE")
   designStageId String?
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
-  designStage   DesignStage? @relation(fields: [designStageId], references: [id])
-  project       Project      @relation(fields: [projectId], references: [id])
-  tenant        Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  delayReason   String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  designStage   DesignStage?  @relation(fields: [designStageId], references: [id])
+  project       Project?      @relation(fields: [projectId], references: [id])
+  tenant        Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   workLogs      WorkLog[]
-  assignees     User[]       @relation("TaskAssignees")
+  timeLogs      TimeLog[]
+  assignees     User[]        @relation("TaskAssignees")
+  comments      TaskComment[]
+}
+
+model TaskComment {
+  id        String   @id @default(cuid())
+  text      String
+  createdAt DateTime @default(now())
+
+  taskId    String
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 }
 
 model WorkLog {
   id          String   @id @default(cuid())
+  tenantId    String
   projectId   String
   taskId      String?
   userId      String
@@ -445,12 +504,14 @@ model WorkLog {
   project     Project  @relation(fields: [projectId], references: [id])
   task        Task?    @relation(fields: [taskId], references: [id])
   user        User     @relation(fields: [userId], references: [id])
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 }
 
 model TimeLog {
   id          String   @id @default(cuid())
-  tenantId    String   @default("t_undefined")
-  projectId   String?
+  tenantId    String
+  projectId   String
+  taskId      String?
   userId      String
   date        DateTime
   hoursLogged Float
@@ -459,14 +520,15 @@ model TimeLog {
   description String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
-  project     Project? @relation(fields: [projectId], references: [id])
+  project     Project  @relation(fields: [projectId], references: [id])
+  task        Task?    @relation(fields: [taskId], references: [id])
   tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   user        User     @relation(fields: [userId], references: [id])
 }
 
 model DailyReport {
   id                   String      @id @default(cuid())
-  tenantId             String      @default("t_undefined")
+  tenantId             String
   createdById          String
   approvedById         String?
   projectId            String
@@ -501,7 +563,7 @@ model DailyReport {
 
 model NCR {
   id           String        @id @default(cuid())
-  tenantId     String        @default("t_undefined")
+  tenantId     String
   createdById  String
   approvedById String?
   projectId    String
@@ -523,7 +585,7 @@ model NCR {
 
 model InspectionRequest {
   id               String       @id @default(cuid())
-  tenantId         String       @default("t_undefined")
+  tenantId         String
   createdById      String
   approvedById     String?
   projectId        String
@@ -546,12 +608,12 @@ model InspectionRequest {
   contractor       Contractor?  @relation(fields: [contractorId], references: [id])
   createdBy        User         @relation("CreatedIRs", fields: [createdById], references: [id])
   project          Project      @relation(fields: [projectId], references: [id])
-  tenant           Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant               Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 }
 
 model MaterialSubmittal {
   id           String   @id @default(cuid())
-  tenantId     String   @default("t_undefined")
+  tenantId     String
   approvedById String?
   status       String   @default("PENDING")
   createdAt    DateTime @default(now())
@@ -562,15 +624,17 @@ model MaterialSubmittal {
 
 model ReportAttendee {
   id        String   @id @default(cuid())
+  tenantId  String
   userId    String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   user      User     @relation(fields: [userId], references: [id])
 }
 
 model IRRevision {
   id                String            @id @default(cuid())
-  tenantId          String            @default("t_undefined")
+  tenantId          String
   irId              String
   userId            String
   respondedById     String?
@@ -589,7 +653,7 @@ model IRRevision {
 
 model NCRRevision {
   id             String   @id @default(cuid())
-  tenantId       String   @default("t_undefined")
+  tenantId       String
   ncrId          String
   userId         String
   respondedById  String?
@@ -607,7 +671,7 @@ model NCRRevision {
 
 model Attendance {
   id        String    @id @default(cuid())
-  tenantId  String    @default("t_undefined")
+  tenantId  String
   userId    String
   date      DateTime
   checkIn   DateTime?
@@ -621,7 +685,7 @@ model Attendance {
 
 model SystemLog {
   id        String   @id @default(cuid())
-  tenantId  String   @default("t_undefined")
+  tenantId  String
   userId    String
   action    String
   createdAt DateTime @default(now())
@@ -632,7 +696,7 @@ model SystemLog {
 
 model DesignStage {
   id            String            @id @default(cuid())
-  tenantId      String            @default("t_undefined")
+  tenantId      String
   projectId     String
   name          String
   order         Int               @default(0)
@@ -655,7 +719,7 @@ model DesignStage {
 
 model DesignStageFile {
   id           String      @id @default(cuid())
-  tenantId     String      @default("t_undefined")
+  tenantId     String
   stageId      String
   name         String?
   uploadedById String?
@@ -669,7 +733,7 @@ model DesignStageFile {
 
 model LoanRequest {
   id                 String          @id @default(cuid())
-  tenantId           String          @default("t_undefined")
+  tenantId           String
   profileId          String
   amount             Float
   installments       Int
@@ -688,7 +752,7 @@ model LoanRequest {
 
 model DocumentRequest {
   id              String          @id @default(cuid())
-  tenantId        String          @default("t_undefined")
+  tenantId        String
   profileId       String
   type            String
   details         String?
@@ -702,7 +766,7 @@ model DocumentRequest {
 
 model Complaint {
   id        String          @id @default(cuid())
-  tenantId  String          @default("t_undefined")
+  tenantId  String
   profileId String
   subject   String
   details   String?
@@ -715,7 +779,7 @@ model Complaint {
 
 model EmployeeHRStats {
   id                  String          @id @default(cuid())
-  tenantId            String          @default("t_undefined")
+  tenantId            String
   profileId           String          @unique
   annualLeaveTotal    Int             @default(30)
   annualLeaveUsed     Int             @default(0)
@@ -738,7 +802,7 @@ model EmployeeHRStats {
 
 model Penalty {
   id        String          @id @default(cuid())
-  tenantId  String          @default("t_undefined")
+  tenantId  String
   profileId String
   reason    String
   date      DateTime
@@ -751,7 +815,7 @@ model Penalty {
 
 model Loan {
   id               String          @id @default(cuid())
-  tenantId         String          @default("t_undefined")
+  tenantId         String
   profileId        String
   totalAmount      Float
   paidAmount       Float           @default(0)
@@ -762,11 +826,27 @@ model Loan {
   updatedAt        DateTime        @updatedAt
   profile          EmployeeProfile @relation(fields: [profileId], references: [id])
   tenant           Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  payments         LoanPayment[]
+}
+
+model LoanPayment {
+  id        String   @id @default(cuid())
+  tenantId  String
+  loanId    String
+  profileId String
+  month     DateTime
+  amount    Float
+  slipId    String?
+  createdAt DateTime @default(now())
+  loan      Loan     @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([loanId, month])
 }
 
 model SalarySlip {
   id                 String          @id @default(cuid())
-  tenantId           String          @default("t_undefined")
+  tenantId           String
   profileId          String
   month              DateTime
   basicSalary        Float
@@ -791,7 +871,7 @@ model SalarySlip {
 
 model Branch {
   id                 String            @id @default(cuid())
-  tenantId           String            @default("t_undefined")
+  tenantId           String
   nameEn             String
   nameAr             String
   location           String?
@@ -807,7 +887,7 @@ model Branch {
 
 model Invoice {
   id              String    @id @default(cuid())
-  tenantId        String    @default("t_undefined")
+  tenantId        String
   projectId       String
   uuid            String    @unique @default(uuid())
   invoiceNumber   String
@@ -824,36 +904,60 @@ model Invoice {
   dueDate         DateTime?
   paymentDate     DateTime?
   status          String    @default("ISSUED")
+  invoiceType     String    @default("STANDARD")
+  discountType    String?
+  discountValue   Float     @default(0)
+  subTotal        Float     @default(0)
+  taxAmount       Float     @default(0)
+  grandTotal      Float     @default(0)
   file            String?
   driveFileId     String?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-  project         Project   @relation(fields: [projectId], references: [id])
-  tenant          Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  project         Project       @relation(fields: [projectId], references: [id])
+  tenant          Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  items           InvoiceItem[]
+
+  @@unique([tenantId, invoiceNumber])
+}
+
+model InvoiceItem {
+  id          String  @id @default(cuid())
+  tenantId    String
+  invoiceId   String
+  description String
+  quantity    Float   @default(1)
+  unitPrice   Float
+  taxRate     Float   @default(0.15)
+  taxAmount   Float
+  totalAmount Float
+  invoice     Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  tenant      Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 }
 
 model Expense {
   id               String   @id @default(cuid())
-  tenantId         String   @default("t_undefined")
-  projectId        String?
+  tenantId         String
+  projectId        String
   description      String
   amountBeforeTax  Float
   taxRate          Float    @default(0.15)
   taxAmount        Float
   totalAmount      Float
   isTaxRecoverable Boolean  @default(true)
+  isLocked         Boolean  @default(false)
   category         String
   date             DateTime
   receipt          String?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
-  project          Project? @relation(fields: [projectId], references: [id])
+  project          Project  @relation(fields: [projectId], references: [id])
   tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 }
 
 model CompanyEvent {
   id          String   @id @default(cuid())
-  tenantId    String   @default("t_undefined")
+  tenantId    String
   title       String
   date        DateTime
   description String?
@@ -865,7 +969,7 @@ model CompanyEvent {
 
 model Milestone {
   id          String   @id @default(cuid())
-  tenantId    String   @default("t_undefined")
+  tenantId    String
   projectId   String
   title       String
   dueDate     DateTime
@@ -880,7 +984,7 @@ model Milestone {
 
 model MenuLink {
   id        String     @id @default(cuid())
-  tenantId  String     @default("t_undefined")
+  tenantId  String
   label     String
   href      String
   icon      String?
@@ -897,18 +1001,20 @@ model MenuLink {
 
 model SystemSetting {
   id          String   @id @default(cuid())
-  tenantId    String   @default("t_undefined")
-  key         String   @unique
+  tenantId    String
+  key         String
   value       String
   description String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, key])
 }
 
 model SystemLookup {
   id        String   @id @default(cuid())
-  tenantId  String   @default("t_undefined")
+  tenantId  String
   category  String
   value     String
   labelEn   String
@@ -918,12 +1024,12 @@ model SystemLookup {
   updatedAt DateTime @updatedAt
   tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  @@unique([category, value])
+  @@unique([tenantId, category, value])
 }
 
 model VariationOrder {
   id             String    @id @default(cuid())
-  tenantId       String    @default("t_undefined")
+  tenantId       String
   projectId      String
   title          String
   description    String?
@@ -941,7 +1047,7 @@ model VariationOrder {
 
 model PettyCashRequest {
   id              String                  @id @default(cuid())
-  tenantId        String                  @default("t_undefined")
+  tenantId        String
   projectId       String
   userId          String
   amount          Float
@@ -966,7 +1072,7 @@ model PettyCashRequest {
 model CustodySettlementItem {
   id              String           @id @default(cuid())
   requestId       String
-  tenantId        String           @default("t_undefined")
+  tenantId        String
   submittedById   String
   projectId       String?
   amount          Float
@@ -983,27 +1089,27 @@ model VendorContract {
   id               String     @id @default(cuid())
   vendorId         String
   projectId        String
-  tenantId         String?    @default("t_undefined")
+  tenantId         String
   contractValue    Float
   balance          Float
   status           String     @default("ACTIVE")
   createdAt        DateTime   @default(now())
   updatedAt        DateTime   @updatedAt
   project          Project    @relation(fields: [projectId], references: [id])
-  tenant           Tenant?    @relation(fields: [tenantId], references: [id])
+  tenant           Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   vendorContractor Contractor @relation("VendorContractor", fields: [vendorId], references: [id])
 }
 
 model Notification {
   id        String   @id @default(cuid())
   userId    String
-  tenantId  String?  @default("t_undefined")
+  tenantId  String
   title     String
   message   String
   priority  String   @default("NORMAL")
   isRead    Boolean  @default(false)
   createdAt DateTime @default(now())
-  tenant    Tenant?  @relation(fields: [tenantId], references: [id])
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   user      User     @relation(fields: [userId], references: [id])
 }
 
@@ -1017,7 +1123,7 @@ model Vendor {
   contactPerson      String?
   phone              String?
   email              String?
-  tenantId           String        @default("t_undefined")
+  tenantId           String
   driveFolderId      String?
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
@@ -1033,7 +1139,7 @@ model SubContract {
   contractDate  DateTime
   scopeOfWork   String?
   driveFolderId String?
-  tenantId      String            @default("t_undefined")
+  tenantId      String
   createdAt     DateTime          @default(now())
   updatedAt     DateTime          @updatedAt
   project       Project           @relation(fields: [projectId], references: [id])
@@ -1063,25 +1169,30 @@ model VendorMilestone {
 }
 
 model Client {
-  id            String    @id @default(cuid())
-  clientCode    String    @unique
-  name          String
-  taxNumber     String?
-  phone         String?
-  email         String?
-  address       String?
-  tenantId      String    @default("t_undefined")
-  driveFolderId String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  projects      Project[]
+  id              String    @id @default(cuid())
+  clientCode      String
+  name            String
+  clientType      ClientType @default(COMPANY)
+  taxNumber       String?
+  crNumber        String?
+  nationalAddress String?
+  phone           String?
+  email           String?
+  address         String?
+  tenantId        String
+  driveFolderId   String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  tenant          Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  projects        Project[]
+
+  @@unique([tenantId, clientCode])
 }
 
 model Drawing {
   id          String            @id @default(cuid())
   projectId   String
-  tenantId    String            @default("t_undefined")
+  tenantId    String
   drawingCode String
   title       String
   discipline  String
@@ -1096,7 +1207,7 @@ model Drawing {
 
 model DrawingRevision {
   id                String        @id @default(cuid())
-  tenantId          String        @default("t_undefined")
+  tenantId          String
   drawingId         String
   versionNumber     Int
   status            String        @default("PENDING")
@@ -1119,7 +1230,7 @@ model DrawingRevision {
 
 model FileComment {
   id         String          @id @default(cuid())
-  tenantId   String          @default("t_undefined")
+  tenantId   String
   revisionId String
   userId     String
   text       String
@@ -1132,7 +1243,7 @@ model FileComment {
 
 model InAppNotification {
   id        String   @id @default(cuid())
-  tenantId  String   @default("t_undefined")
+  tenantId  String
   userId    String
   title     String
   message   String
@@ -1147,7 +1258,7 @@ model InAppNotification {
 
 model AuditLog {
   id        String   @id @default(cuid())
-  tenantId  String   @default("t_undefined")
+  tenantId  String
   userId    String?
   action    String
   details   String
@@ -1172,7 +1283,7 @@ model LoginAttempt {
 
 model Team {
   id            String         @id @default(cuid())
-  tenantId      String         @default("t_undefined")
+  tenantId      String
   name          String
   description   String?
   leaderId      String?
@@ -1200,7 +1311,7 @@ model TeamMember {
 /// Links optionally to a Project and/or a DesignStage for traceability.
 model EmployeeTask {
   id                   String    @id @default(cuid())
-  tenantId             String    @default("t_undefined")
+  tenantId             String
   title                String
   description          String?
   /// Who the task is assigned to (required)
@@ -1233,4 +1344,168 @@ model EmployeeTask {
   project     Project?     @relation(fields: [projectId], references: [id])
   designStage DesignStage? @relation(fields: [designStageId], references: [id])
   team        Team?        @relation(fields: [teamId], references: [id])
+}
+
+// ── CRM: Leads & Proposals ───────────────────────────────────────────────
+
+model Lead {
+  id            String     @id @default(cuid())
+  tenantId      String
+  brandId       String?
+  name          String
+  company       String?
+  email         String?
+  phone         String?
+  /// ACTIVE | CONVERTED | ARCHIVED
+  status        String     @default("ACTIVE")
+  notes         String?
+  driveFolderId String?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  brand         Brand?     @relation(fields: [brandId], references: [id], onDelete: SetNull)
+  tenant        Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  proposals     Proposal[]
+}
+
+model Proposal {
+  id            String             @id @default(cuid())
+  tenantId      String
+  leadId        String
+  brandId       String?
+  title         String
+  /// DRAFT | SENT | REVISION | ACCEPTED | REJECTED
+  currentStatus String             @default("DRAFT")
+  notes         String?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  lead          Lead               @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  brand         Brand?             @relation(fields: [brandId], references: [id], onDelete: SetNull)
+  tenant        Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  revisions     ProposalRevision[]
+}
+
+model ProposalRevision {
+  id          String   @id @default(cuid())
+  tenantId    String
+  proposalId  String
+  revNumber   Int      @default(0)
+  fileUrl     String?
+  totalAmount Float    @default(0)
+  notes       String?
+  createdAt   DateTime @default(now())
+  proposal    Proposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+// ── Short Leave / Permission Requests (الأذونات) ──────────────────────────────
+model PermissionRequest {
+  id              String   @id @default(cuid())
+  tenantId        String
+  userId          String
+  date            DateTime
+  hours           Float
+  reason          String?
+  status          String   @default("PENDING_MANAGER")
+  rejectionReason String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  user            User     @relation(fields: [userId], references: [id])
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+// ── Disciplinary Actions (الإنذارات والخصومات) ─────────────────────────────────
+model DisciplinaryAction {
+  id           String   @id @default(cuid())
+  tenantId     String
+  userId       String
+  date         DateTime
+  type         String   // WARNING | DEDUCTION
+  amountOrDays Float    @default(0)
+  reason       String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  user         User     @relation(fields: [userId], references: [id])
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+// ── Financial Ledger — cross-domain audit trail ───────────────────────────────
+// Every monetary event that originates in HR (loan disbursement, salary payment,
+// penalty deduction) posts an immutable entry here so Finance can reconcile
+// without joining HR tables directly.
+model FinancialLedger {
+  id            String   @id @default(cuid())
+  tenantId      String
+  projectId     String
+  /// EXPENSE | INCOME
+  type          String
+  /// "Employee Advances" | "Salary" | "Loan Repayment" | "Penalty Deduction"
+  category      String
+  description   String
+  amount        Float
+  /// LOAN_REQUEST | SALARY_SLIP | PENALTY | DISCIPLINARY
+  referenceType String?
+  referenceId   String?
+  isLocked      Boolean  @default(false)
+  date          DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  project       Project  @relation(fields: [projectId], references: [id])
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+// ── KPI Evaluation — automated monthly performance score ──────────────────────
+// Scores are computed by calculateMonthlyKPI() and can be re-run any time.
+// unique(userId, month, year) ensures one canonical record per employee per month.
+model KpiEvaluation {
+  id                String   @id @default(cuid())
+  tenantId          String
+  userId            String
+  evaluatorId       String?
+  month             Int
+  year              Int
+  /// 0–100 composite score
+  totalScore        Float    @default(0)
+  /// 0–50  — task completion + long-task bonuses/penalties
+  taskScore         Float    @default(0)
+  /// 0–30  — logged hours / required hours * 30
+  timesheetScore    Float    @default(0)
+  /// 0–20  — disciplinary actions deduction
+  disciplinePenalty Float    @default(0)
+  feedback          String?
+  /// JSON blob with per-component breakdown for the tooltip
+  breakdown         String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user      User    @relation("UserKPIs",      fields: [userId],      references: [id], onDelete: Cascade)
+  evaluator User?   @relation("EvaluatorKPIs", fields: [evaluatorId], references: [id])
+  tenant    Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, month, year])
+}
+
+model FinanceAuditTrail {
+  id         String   @id @default(cuid())
+  tenantId   String
+  userId     String
+  action     String
+  entityId   String
+  entityType String
+  details    String
+  createdAt  DateTime @default(now())
+
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model ProjectType {
+  id        String   @id @default(cuid())
+  tenantId  String
+  nameEn    String
+  nameAr    String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  projects  Project[]
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 }

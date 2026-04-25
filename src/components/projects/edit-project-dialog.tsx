@@ -55,8 +55,17 @@ export function EditProjectDialog({ project, allEngineers }: { project: any, all
                             <Input id="name" name="name" defaultValue={project.name} className="col-span-3" required />
                         </div>
                         <div className="grid grid-cols-4 items-center gap-4">
-                            <Label htmlFor="client" className="text-right">Client Name</Label>
-                            <Input id="client" name="client" defaultValue={project.client} className="col-span-3" required />
+                            <Label htmlFor="clientDisplay" className="text-right">Client Name</Label>
+                            <div className="col-span-3">
+                                <Input
+                                    id="clientDisplay"
+                                    readOnly
+                                    value={project.client?.name || project.legacyClientName || ''}
+                                    className="bg-slate-50 text-slate-500 cursor-not-allowed"
+                                />
+                                {/* Send the CRM client ID, not the whole object */}
+                                <input type="hidden" name="clientId" value={project.client?.id || ''} />
+                            </div>
                         </div>
                         <div className="grid grid-cols-4 items-center gap-4">
                             <Label htmlFor="clientVat" className="text-right">Client VAT</Label>

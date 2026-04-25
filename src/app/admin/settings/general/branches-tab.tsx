@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -9,15 +9,153 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog"
 import { Switch } from "@/components/ui/switch"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Briefcase, Building, MapPin, BadgePercent, Coins, MoreHorizontal, Pencil, Trash2 } from "lucide-react"
+import { Briefcase, Building, MapPin, BadgePercent, Coins, MoreHorizontal, Pencil, Trash2, RefreshCw } from "lucide-react"
 import { createBranch, updateBranch, deleteBranch } from "@/app/actions/branches"
 import { Badge } from "@/components/ui/badge"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+
+const BASE_CURRENCY = "SAR"
+
+const CURRENCIES = [
+    { value: "SAR", label: "Saudi Riyal (SAR)" },
+    { value: "EGP", label: "Egyptian Pound (EGP)" },
+    { value: "USD", label: "US Dollar (USD)" },
+    { value: "AED", label: "UAE Dirham (AED)" },
+]
+
+async function fetchLiveRate(from: string): Promise<number | null> {
+    if (from === BASE_CURRENCY) return 1.0
+    try {
+        const res = await fetch(`https://api.frankfurter.app/latest?from=${from}&to=${BASE_CURRENCY}`)
+        if (!res.ok) return null
+        const data = await res.json()
+        return data?.rates?.[BASE_CURRENCY] ?? null
+    } catch {
+        return null
+    }
+}
+
+interface ExchangeRateFieldProps {
+    currency: string
+    rate: string
+    isHQ: boolean
+    fetching: boolean
+    onRateChange: (val: string) => void
+    onFetch: () => void
+}
+
+function ExchangeRateField({ currency, rate, isHQ, fetching, onRateChange, onFetch }: ExchangeRateFieldProps) {
+    const rateNum = parseFloat(rate)
+    const showHelper = !isNaN(rateNum) && rate !== ""
+    const isSameCurrency = currency === BASE_CURRENCY
+
+    return (
+        <div className="space-y-2">
+            <Label>Exchange Rate (to {BASE_CURRENCY})</Label>
+            <div className="flex gap-2">
+                <Input
+                    type="number"
+                    step="any"
+                    min="0.00001"
+                    name="exchangeRateToBase"
+                    value={isHQ ? "1.00000" : rate}
+                    onChange={(e) => {
+                        // Only accept positive numbers
+                        const val = e.target.value
+                        if (val === "" || /^\d*\.?\d*$/.test(val)) {
+                            onRateChange(val)
+                        }
+                    }}
+                    disabled={isHQ || isSameCurrency}
+                    required
+                    className="font-mono"
+                />
+                <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    disabled={isHQ || isSameCurrency || fetching}
+                    onClick={onFetch}
+                    title="Fetch live exchange rate"
+                    className="shrink-0"
+                >
+                    <RefreshCw className={`h-4 w-4 ${fetching ? "animate-spin" : ""}`} />
+                </Button>
+            </div>
+            {isHQ && (
+                <p className="text-xs text-slate-400">Headquarters rate is always 1.0</p>
+            )}
+            {!isHQ && isSameCurrency && (
+                <p className="text-xs text-slate-400">Base currency — no conversion needed</p>
+            )}
+            {!isHQ && !isSameCurrency && showHelper && (
+                <p className="text-xs text-indigo-600 font-medium">
+                    1 {currency} = {rateNum.toFixed(5)} {BASE_CURRENCY}
+                </p>
+            )}
+        </div>
+    )
+}
 
 export function BranchesTab({ branches }: { branches: any[] }) {
     const [loading, setLoading] = useState(false)
     const [isAddOpen, setIsAddOpen] = useState(false)
     const [editingBranch, setEditingBranch] = useState<any | null>(null)
+
+    // Add dialog state
+    const [addCurrency, setAddCurrency] = useState("SAR")
+    const [addRate, setAddRate] = useState("1.00000")
+    const [addIsHQ, setAddIsHQ] = useState(false)
+    const [fetchingAdd, setFetchingAdd] = useState(false)
+
+    // Edit dialog state
+    const [editCurrency, setEditCurrency] = useState("SAR")
+    const [editRate, setEditRate] = useState("1.00000")
+    const [editIsHQ, setEditIsHQ] = useState(false)
+    const [fetchingEdit, setFetchingEdit] = useState(false)
+
+    // Reset add dialog when it closes
+    useEffect(() => {
+        if (!isAddOpen) {
+            setAddCurrency("SAR")
+            setAddRate("1.00000")
+            setAddIsHQ(false)
+        }
+    }, [isAddOpen])
+
+    // Sync edit dialog state when a branch is selected for editing
+    useEffect(() => {
+        if (editingBranch) {
+            setEditCurrency(editingBranch.currencyCode || "SAR")
+            setEditRate(String(editingBranch.exchangeRateToBase ?? "1.00000"))
+            setEditIsHQ(!!editingBranch.isMainBranch)
+        }
+    }, [editingBranch])
+
+    // When HQ is toggled on, lock rate to 1.0
+    function handleAddHQToggle(checked: boolean) {
+        setAddIsHQ(checked)
+        if (checked) setAddRate("1.00000")
+    }
+
+    function handleEditHQToggle(checked: boolean) {
+        setEditIsHQ(checked)
+        if (checked) setEditRate("1.00000")
+    }
+
+    async function handleFetchAdd() {
+        setFetchingAdd(true)
+        const rate = await fetchLiveRate(addCurrency)
+        if (rate !== null) setAddRate(rate.toFixed(5))
+        setFetchingAdd(false)
+    }
+
+    async function handleFetchEdit() {
+        setFetchingEdit(true)
+        const rate = await fetchLiveRate(editCurrency)
+        if (rate !== null) setEditRate(rate.toFixed(5))
+        setFetchingEdit(false)
+    }
 
     async function handleAdd(formData: FormData) {
         setLoading(true)
@@ -78,29 +216,45 @@ export function BranchesTab({ branches }: { branches: any[] }) {
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="space-y-2">
                                         <Label>Base Currency</Label>
-                                        <Select name="currencyCode" defaultValue="SAR">
+                                        <Select
+                                            name="currencyCode"
+                                            value={addCurrency}
+                                            onValueChange={(val) => {
+                                                setAddCurrency(val)
+                                                // Reset rate when currency changes (unless HQ)
+                                                if (!addIsHQ) setAddRate(val === BASE_CURRENCY ? "1.00000" : "")
+                                            }}
+                                        >
                                             <SelectTrigger>
                                                 <SelectValue />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                <SelectItem value="SAR">Saudi Riyal (SAR)</SelectItem>
-                                                <SelectItem value="EGP">Egyptian Pound (EGP)</SelectItem>
-                                                <SelectItem value="USD">US Dollar (USD)</SelectItem>
-                                                <SelectItem value="AED">UAE Dirham (AED)</SelectItem>
+                                                {CURRENCIES.map((c) => (
+                                                    <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
+                                                ))}
                                             </SelectContent>
                                         </Select>
                                     </div>
-                                    <div className="space-y-2">
-                                        <Label>Exchange Rate (to Base)</Label>
-                                        <Input type="number" step="0.0001" name="exchangeRateToBase" defaultValue="1.0" required />
-                                    </div>
+                                    <ExchangeRateField
+                                        currency={addCurrency}
+                                        rate={addRate}
+                                        isHQ={addIsHQ}
+                                        fetching={fetchingAdd}
+                                        onRateChange={setAddRate}
+                                        onFetch={handleFetchAdd}
+                                    />
                                 </div>
                                 <div className="flex items-center justify-between border rounded-xl p-4">
                                     <div className="space-y-0.5">
                                         <Label>Headquarters</Label>
                                         <p className="text-sm text-slate-500">Mark this as the primary HQ branch</p>
                                     </div>
-                                    <Switch name="isMainBranch" value="true" />
+                                    <Switch
+                                        name="isMainBranch"
+                                        value="true"
+                                        checked={addIsHQ}
+                                        onCheckedChange={handleAddHQToggle}
+                                    />
                                 </div>
                             </div>
                             <DialogFooter>
@@ -203,29 +357,44 @@ export function BranchesTab({ branches }: { branches: any[] }) {
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="space-y-2">
                                     <Label>Base Currency</Label>
-                                    <Select name="currencyCode" defaultValue={editingBranch?.currencyCode || 'SAR'}>
+                                    <Select
+                                        name="currencyCode"
+                                        value={editCurrency}
+                                        onValueChange={(val) => {
+                                            setEditCurrency(val)
+                                            if (!editIsHQ) setEditRate(val === BASE_CURRENCY ? "1.00000" : "")
+                                        }}
+                                    >
                                         <SelectTrigger>
                                             <SelectValue />
                                         </SelectTrigger>
                                         <SelectContent>
-                                            <SelectItem value="SAR">Saudi Riyal (SAR)</SelectItem>
-                                            <SelectItem value="EGP">Egyptian Pound (EGP)</SelectItem>
-                                            <SelectItem value="USD">US Dollar (USD)</SelectItem>
-                                            <SelectItem value="AED">UAE Dirham (AED)</SelectItem>
+                                            {CURRENCIES.map((c) => (
+                                                <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
+                                            ))}
                                         </SelectContent>
                                     </Select>
                                 </div>
-                                <div className="space-y-2">
-                                    <Label>Exchange Rate (to Base)</Label>
-                                    <Input type="number" step="0.0001" name="exchangeRateToBase" defaultValue={editingBranch?.exchangeRateToBase || "1.0"} required />
-                                </div>
+                                <ExchangeRateField
+                                    currency={editCurrency}
+                                    rate={editRate}
+                                    isHQ={editIsHQ}
+                                    fetching={fetchingEdit}
+                                    onRateChange={setEditRate}
+                                    onFetch={handleFetchEdit}
+                                />
                             </div>
                             <div className="flex items-center justify-between border rounded-xl p-4">
                                 <div className="space-y-0.5">
                                     <Label>Headquarters</Label>
                                     <p className="text-sm text-slate-500">Mark this as the primary HQ branch</p>
                                 </div>
-                                <Switch name="isMainBranch" value="true" defaultChecked={editingBranch?.isMainBranch} />
+                                <Switch
+                                    name="isMainBranch"
+                                    value="true"
+                                    checked={editIsHQ}
+                                    onCheckedChange={handleEditHQToggle}
+                                />
                             </div>
                         </div>
                         <DialogFooter>

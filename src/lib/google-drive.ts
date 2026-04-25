@@ -106,43 +106,107 @@ export async function findFolder(tenantId: string, name: string, parentId: strin
     }, 3, tenantId);
 }
 
+// ── In-process mutex for folder creation ─────────────────────────────────────
+// Drive allows multiple folders with identical names under the same parent.
+// If two concurrent requests both pass the `findFolder` check (finding nothing),
+// they would both call `drive.files.create`, producing duplicates.
+//
+// This map deduplicates concurrent creation attempts for the same path within
+// a single Node.js process. Key: `${tenantId}:${parentId}:${folderName}`.
+// If a creation is already in flight for that key, callers await the same
+// promise instead of triggering a parallel Drive API call.
+const folderCreationLocks = new Map<string, Promise<string>>()
+
 /**
- * Idempotent folder creation. Finds first, only creates if not found.
+ * Idempotent folder creation with concurrent-request deduplication.
+ * Finds first, only creates if not found. If a creation is already in flight
+ * for the same (tenant, parent, name) triple, awaits it instead of racing.
  * This is the SINGLE source of truth for all folder creation.
  */
 export async function findOrCreateFolder(tenantId: string, name: string, parentId: string): Promise<string> {
     if (!parentId) throw new Error(`[Drive] Cannot create folder "${name}": parentId is missing.`);
 
+    // Fast path: folder already exists — no lock needed.
     const existing = await findFolder(tenantId, name, parentId);
     if (existing) return existing;
 
+    const lockKey = `${tenantId}:${parentId}:${name}`;
+
+    // If a creation is already inflight for this exact path, await it.
+    const inflight = folderCreationLocks.get(lockKey);
+    if (inflight) {
+        console.log(`[Drive] Deduplicating concurrent create for "${name}" — awaiting inflight`);
+        return inflight;
+    }
+
+    // Start the creation promise, register it, and clean up when done.
     const drive = await getDrive(tenantId);
-    return withBackoff(async () => {
-        const res = await drive.files.create({
-            requestBody: {
-                name,
-                mimeType: 'application/vnd.google-apps.folder',
-                parents: [parentId],
+    const promise = (async (): Promise<string> => {
+        // Double-check inside the promise: another concurrent caller may have
+        // created the folder between our findFolder above and the lock registration.
+        const recheck = await findFolder(tenantId, name, parentId);
+        if (recheck) return recheck;
+
+        const folderId = await withBackoff(async () => {
+            const res = await drive.files.create({
+                requestBody: {
+                    name,
+                    mimeType: 'application/vnd.google-apps.folder',
+                    parents: [parentId],
+                },
+                fields: 'id',
+                supportsAllDrives: true,
+            });
+            console.log(`[Drive] Created folder: "${name}" in parent: ${parentId}`);
+            return res.data.id!;
+        }, 3, tenantId);
+
+        // Non-blocking audit trail — folder creation never fails due to DB
+        ;(db as any).auditLog.create({
+            data: {
+                tenantId,
+                action: 'DRIVE_FOLDER_CREATED',
+                details: JSON.stringify({ folderName: name, parentId, folderId }),
             },
-            fields: 'id',
-            supportsAllDrives: true
-        });
-        console.log(`[Drive] Created folder: "${name}" in parent: ${parentId}`);
-        return res.data.id!;
-    }, 3, tenantId);
+        }).catch((err: any) => console.warn('[Drive] AuditLog write failed (non-blocking):', err));
+
+        return folderId;
+    })().finally(() => folderCreationLocks.delete(lockKey));
+
+    folderCreationLocks.set(lockKey, promise);
+    return promise;
 }
 
 // Alias for backward compatibility
 export const createFolder = findOrCreateFolder;
 
+// ==========================================
+// FILENAME SANITIZATION — Single source of truth
+// Strips all characters that cause issues in Drive names and URL generation.
+// ==========================================
+
+/**
+ * Strips characters that break Google Drive folder names or corrupt URL generation:
+ *   / \ # % & { } < > * ? $ ! ' " ` : @ | =
+ * Collapses multiple consecutive dashes and trims whitespace.
+ */
+export function sanitizeDriveName(name: string): string {
+    return name
+        .trim()
+        .replace(/[\/\\#%&{}@<>*?$!'"`:@|=]/g, '-')  // problem chars → dash
+        .replace(/-{2,}/g, '-')                         // collapse runs of dashes
+        .replace(/^-|-$/g, '')                          // strip leading/trailing dashes
+        || 'Unnamed';
+}
+
 /**
  * Resolves a deep path by walking/creating each segment idempotently.
+ * Every segment is passed through sanitizeDriveName before use.
  */
 export async function resolveDrivePath(tenantId: string, pathArray: string[], rootId: string): Promise<string> {
     let currentParentId = rootId;
     for (const folderName of pathArray) {
-        const safeName = folderName.trim().replace(/\//g, '-');
-        currentParentId = await findOrCreateFolder(tenantId, safeName, currentParentId);
+        currentParentId = await findOrCreateFolder(tenantId, sanitizeDriveName(folderName), currentParentId);
     }
     return currentParentId;
 }
@@ -201,8 +265,7 @@ export interface ClientFolderMap {
 export async function createClientFolders(tenantId: string, clientName: string, rootId: string): Promise<ClientFolderMap> {
     try {
         const { clients } = await initializeMasterHierarchy(tenantId, rootId);
-        const safeName = clientName.trim().replace(/[\/\\#%&{}@<>*?$!'":`|=]/g, '-');
-        const clientRoot = await findOrCreateFolder(tenantId, safeName, clients);
+        const clientRoot = await findOrCreateFolder(tenantId, sanitizeDriveName(clientName), clients);
 
         const [officialDocs, contracts, invoices] = await Promise.all([
             findOrCreateFolder(tenantId, '01 - الأوراق الرسمية (CR, IDs)', clientRoot),
@@ -235,8 +298,7 @@ export interface VendorFolderMap {
 export async function createVendorFolders(tenantId: string, vendorName: string, rootId: string): Promise<VendorFolderMap> {
     try {
         const { vendors } = await initializeMasterHierarchy(tenantId, rootId);
-        const safeName = vendorName.trim().replace(/[\/\\#%&{}@<>*?$!'":`|=]/g, '-');
-        const vendorRoot = await findOrCreateFolder(tenantId, safeName, vendors);
+        const vendorRoot = await findOrCreateFolder(tenantId, sanitizeDriveName(vendorName), vendors);
 
         const [vendorDocs, subContracts, payments] = await Promise.all([
             findOrCreateFolder(tenantId, '01 - أوراق المورد (Tax ID, IBAN)', vendorRoot),
@@ -305,16 +367,20 @@ export async function createProjectFolders(
     projectName: string,
     options: ProjectFolderOptions
 ): Promise<ProjectFolderMap> {
+    // TARGET 2: Any folder failure throws — callers must NOT silently swallow this.
+    // A project with a null driveFolderId causes orphaned records and data loss.
+    try {
     const { serviceType, disciplines = [] } = options;
     const { driveFolderId: rootId } = await getDriveSettings(tenantId);
 
     const { projects } = await initializeMasterHierarchy(tenantId, rootId);
 
-    const safeBrand = brandName.trim().replace(/[\/\\#%&{}@<>*?$!'":`|=]/g, '-');
-    const brandFolder = await findOrCreateFolder(tenantId, safeBrand, projects);
-
-    const safeProjectName = projectName.trim().replace(/[\/\\#%&{}@<>*?$!'":`|=]/g, '-');
-    const projectRoot = await findOrCreateFolder(tenantId, `${projectCode} - ${safeProjectName}`, brandFolder);
+    const brandFolder = await findOrCreateFolder(tenantId, sanitizeDriveName(brandName), projects);
+    const projectRoot = await findOrCreateFolder(
+        tenantId,
+        `${projectCode} - ${sanitizeDriveName(projectName)}`,
+        brandFolder,
+    );
 
     // Always-present folders (created in parallel)
     const [contractual, survey, projectAccounts, correspondence, handover] = await Promise.all([
@@ -376,6 +442,13 @@ export async function createProjectFolders(
     }
 
     return folderMap;
+
+    } catch (err: any) {
+        // Re-throw with clear context so callers know exactly which project failed
+        throw new Error(
+            `[Drive] createProjectFolders FAILED for project "${projectCode} - ${projectName}": ${err.message}`
+        );
+    }
 }
 
 // ==========================================
@@ -403,32 +476,40 @@ export async function uploadToDrive(
         throw new Error(`[Drive] CRITICAL: targetFolderId is missing or invalid. Received: "${targetFolderId}"`);
     }
 
+    // TARGET 3: Always compute hash and check for duplicates before uploading
+    const hash = computeFileHash(fileBuffer);
+    const dup = await checkFileDuplicate(tenantId, targetFolderId, hash);
+    if (dup.isDuplicate) {
+        console.log(`[Drive] uploadToDrive: duplicate detected ("${dup.fileName}") — returning existing file, skipping upload.`);
+        return { fileId: dup.fileId!, webViewLink: null, webContentLink: null };
+    }
+
     const drive = await getDrive(tenantId);
     const stream = Readable.from(fileBuffer);
 
     return withBackoff(async () => {
         const res = await drive.files.create({
-            requestBody: { name: fileName, parents: [targetFolderId] },
+            requestBody: {
+                name: fileName,
+                parents: [targetFolderId],
+                // Store hash in appProperties so future duplicate checks work on these files too
+                appProperties: { fileHash: hash, uploadedAt: new Date().toISOString() },
+            },
             media: { mimeType, body: stream },
             fields: 'id, webViewLink, webContentLink',
             supportsAllDrives: true,
         });
 
-        const fileId = res.data.id!;
-
-        // Make file readable by anyone with the link (for ERP display)
-        await drive.permissions.create({
-            fileId,
-            requestBody: { role: 'reader', type: 'anyone' },
-            supportsAllDrives: true,
-        });
+        // TARGET 1: PRIVACY FIX — files are PRIVATE by default.
+        // Access is granted only via Service Account / OAuth2 credentials.
+        // The `type: 'anyone'` permission block has been intentionally removed.
 
         return {
-            fileId,
+            fileId: res.data.id!,
             webViewLink: res.data.webViewLink ?? null,
             webContentLink: res.data.webContentLink ?? null,
         };
-    });
+    }, 3, tenantId);
 }
 
 /**
@@ -488,8 +569,25 @@ export async function moveFileToArchive(tenantId: string, fileId: string, origin
         addParents: newParentFolderId,
         removeParents: previousParents,
         requestBody: { name: newName },
-        fields: 'id, parents'
+        fields: 'id, parents',
     });
+
+    // TARGET 5: Non-blocking audit trail for archive operations
+    ;(db as any).auditLog.create({
+        data: {
+            tenantId,
+            action: 'DRIVE_FILE_ARCHIVED',
+            details: JSON.stringify({
+                fileId,
+                originalName,
+                archivedAs: newName,
+                archivedVersion: oldVersion,
+                archiveFolderId: newParentFolderId,
+                archivedAt: new Date().toISOString(),
+            }),
+        },
+    }).catch((err: any) => console.warn('[Drive] AuditLog write failed for archive (non-blocking):', err));
+
     return true;
 }
 
@@ -544,8 +642,7 @@ export async function getEdcPendingFolder(tenantId: string, projectId: string): 
 export async function createVendorSubfolder(tenantId: string, projectDriveFolderId: string, vendorName: string): Promise<string | null> {
     try {
         if (!projectDriveFolderId) return null;
-        const safeName = vendorName.trim().replace(/[\/\\#%&{}@<>*?$!'":`|=]/g, '-');
-        return await resolveDrivePath(tenantId, ['03 - حسابات المشروع (Project Accounts)', safeName], projectDriveFolderId);
+        return await resolveDrivePath(tenantId, ['03 - حسابات المشروع (Project Accounts)', sanitizeDriveName(vendorName)], projectDriveFolderId);
     } catch (error) {
         console.error(`[Drive] createVendorSubfolder error for "${vendorName}":`, error);
         return null;
@@ -586,25 +683,22 @@ export async function getFinanceFolder(tenantId: string, year: string, month: st
 export async function getProjectFolder(tenantId: string, brandName: string, projectCode: string, projectName: string, category: string): Promise<string> {
     const rootId = await getRootFolderId(tenantId);
     const { projects } = await initializeMasterHierarchy(tenantId, rootId);
-    const safeBrand = brandName.trim().replace(/[\/\\#%&{}@<>*?$!'":`|=]/g, '-');
-    const projectFolderName = `${projectCode} - ${projectName.trim().replace(/[\/\\#%&{}@<>*?$!'":`|=]/g, '-')}`;
-    return resolveDrivePath(tenantId, [safeBrand, projectFolderName, category], projects);
+    const projectFolderName = `${projectCode} - ${sanitizeDriveName(projectName)}`;
+    return resolveDrivePath(tenantId, [sanitizeDriveName(brandName), projectFolderName, category], projects);
 }
 
 export async function getSupervisionFolder(tenantId: string, brandName: string, projectCode: string, projectName: string, reportType: string): Promise<string> {
     const rootId = await getRootFolderId(tenantId);
     const { projects } = await initializeMasterHierarchy(tenantId, rootId);
-    const safeBrand = brandName.trim().replace(/[\/\\#%&{}@<>*?$!'":`|=]/g, '-');
-    const projectFolderName = `${projectCode} - ${projectName.trim().replace(/[\/\\#%&{}@<>*?$!'":`|=]/g, '-')}`;
-    return resolveDrivePath(tenantId, [safeBrand, projectFolderName, '08 - الإشراف', reportType], projects);
+    const projectFolderName = `${projectCode} - ${sanitizeDriveName(projectName)}`;
+    return resolveDrivePath(tenantId, [sanitizeDriveName(brandName), projectFolderName, '08 - الإشراف', reportType], projects);
 }
 
 /** @deprecated Use createProjectFolders() instead */
 export async function initializeBrandStructure(tenantId: string, brandName: string): Promise<string> {
     const rootId = await getRootFolderId(tenantId);
     const { projects } = await initializeMasterHierarchy(tenantId, rootId);
-    const safeBrand = brandName.trim().replace(/[\/\\#%&{}@<>*?$!'":`|=]/g, '-');
-    return findOrCreateFolder(tenantId, safeBrand, projects);
+    return findOrCreateFolder(tenantId, sanitizeDriveName(brandName), projects);
 }
 
 /** @deprecated Use createProjectFolders() instead */
@@ -616,16 +710,34 @@ export async function initializeProjectStructure(tenantId: string, brandName: st
     return map.root;
 }
 
-/** @deprecated Use initializeMasterHierarchy() for employee folder under hr master */
+/**
+ * Creates the full HR folder structure for a new employee under:
+ *   05 - الموارد البشرية / [Branch] / [Employee Name]
+ *
+ * Sub-folders (numbered for consistent ordering in Drive):
+ *   01 - الأوراق الرسمية          — ID copies, residency, official docs
+ *   02 - العقود والمباشرة         — Employment contract, onboarding docs
+ *   03 - الإجازات والتقارير الطبية — Leave forms, medical certificates
+ *   04 - السلف والعمليات المالية  — Salary slips, loan records, expense claims
+ *   05 - تقييم الأداء             — Performance reviews, appraisals
+ *
+ * Idempotent — safe to call on re-hire or re-sync.
+ * The in-process mutex on findOrCreateFolder prevents duplicate folders if
+ * this is called concurrently for the same employee.
+ */
 export async function initializeEmployeeDriveStructure(tenantId: string, branchName: string, employeeName: string): Promise<string> {
     const rootId = await getRootFolderId(tenantId);
     const { hr } = await initializeMasterHierarchy(tenantId, rootId);
     const employeeFolderId = await resolveDrivePath(tenantId, [branchName, employeeName], hr);
+
     await Promise.all([
-        findOrCreateFolder(tenantId, 'الأوراق الرسمية', employeeFolderId),
-        findOrCreateFolder(tenantId, 'الإجازات والتقارير الطبية', employeeFolderId),
-        findOrCreateFolder(tenantId, 'القروض والعمليات المالية', employeeFolderId),
+        findOrCreateFolder(tenantId, '01 - الأوراق الرسمية', employeeFolderId),
+        findOrCreateFolder(tenantId, '02 - العقود والمباشرة', employeeFolderId),
+        findOrCreateFolder(tenantId, '03 - الإجازات والتقارير الطبية', employeeFolderId),
+        findOrCreateFolder(tenantId, '04 - السلف والعمليات المالية', employeeFolderId),
+        findOrCreateFolder(tenantId, '05 - تقييم الأداء', employeeFolderId),
     ]);
+
     return employeeFolderId;
 }
 
@@ -781,15 +893,11 @@ export async function uploadToDriveWithMeta(
             supportsAllDrives: true,
         });
 
-        const fileId = res.data.id!;
-        await drive.permissions.create({
-            fileId,
-            requestBody: { role: 'reader', type: 'anyone' },
-            supportsAllDrives: true,
-        });
+        // TARGET 1: PRIVACY FIX — no public permissions.
+        // Files remain private; ERP accesses them via OAuth2 / Service Account only.
 
         return {
-            fileId,
+            fileId: res.data.id!,
             webViewLink: res.data.webViewLink ?? null,
             webContentLink: res.data.webContentLink ?? null,
             isDuplicate: false,

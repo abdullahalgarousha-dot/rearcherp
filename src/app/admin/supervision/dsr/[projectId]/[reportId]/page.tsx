@@ -23,15 +23,19 @@ export default async function DailyReportDetailsPage({
 }) {
     const { reportId } = await params
     const session = await auth()
+    const user = session?.user as any
 
     // Auth Check
-    if (!['ADMIN', 'PM', 'HR', 'SITE_ENGINEER'].includes((session?.user as any)?.role)) {
+    if (!['ADMIN', 'PM', 'HR', 'SITE_ENGINEER'].includes(user?.role)) {
         redirect('/')
     }
 
-    // 1. جلب التقرير مع كافة العلاقات
-    const report = await db.dailyReport.findUnique({
-        where: { id: reportId },
+    const tenantId = user?.tenantId
+    if (!tenantId) redirect('/login')
+
+    // 1. جلب التقرير مع كافة العلاقات — scoped to tenantId
+    const report = await db.dailyReport.findFirst({
+        where: { id: reportId, tenantId },
         include: {
             project: { include: { brand: true } },
             createdBy: true,

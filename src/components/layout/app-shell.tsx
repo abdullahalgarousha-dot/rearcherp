@@ -1,8 +1,9 @@
 import { auth } from "@/auth"
-import { checkPermission } from "@/lib/rbac"
+import type { PermissionMatrix } from "@/lib/rbac"
 import { redirect } from "next/navigation"
 import { Sidebar } from "@/components/layout/sidebar"
 import { MobileSidebar } from "@/components/layout/mobile-sidebar"
+import { NotificationBell } from "@/components/layout/notification-bell"
 import { db } from "@/lib/db"
 import { getSystemSettings } from "@/app/actions/settings"
 import { checkFeatureGate } from "@/lib/feature-gate"
@@ -20,83 +21,57 @@ export async function AppShell({
     const settings = await getSystemSettings()
     const tenantId = (session.user as any).tenantId
 
-    // Check Permissions for Menu Items (Double-Gated with Plane Features)
-    const isGlobalAdmin = (session.user as any).role === 'GLOBAL_SUPER_ADMIN'
-    const canViewHR = (await checkPermission('HR', 'read') && await checkFeatureGate(tenantId, 'HR')) || isGlobalAdmin
-    const canViewRoles = await checkPermission('ROLES', 'read') || isGlobalAdmin
-    const canViewFinance = (await checkPermission('FINANCE', 'read') && await checkFeatureGate(tenantId, 'FINANCE')) || isGlobalAdmin
-    const canViewSupervision = await checkPermission('SUPERVISION', 'read') || isGlobalAdmin
-    const canViewProjects = (await checkPermission('PROJECTS', 'read') && await checkFeatureGate(tenantId, 'PROJECTS')) || isGlobalAdmin
-    const canViewSettings = await checkPermission('SETTINGS', 'read')
-    const canViewLogs = await checkPermission('LOGS', 'read')
-    const canViewCRM = isGlobalAdmin || await checkFeatureGate(tenantId, 'CRM') || await checkPermission('PROJECTS', 'read')
+    // ── Role tiers ────────────────────────────────────────────────────────────
+    const userRole = (session.user as any).role as string
+    // Only the SaaS operator gets unconditional access to everything.
+    const isGlobalSuperAdmin = userRole === 'GLOBAL_SUPER_ADMIN'
+    // Legacy admin roles created before the permissions matrix existed.
+    // They inherit full visibility but are still subject to plan feature gates.
+    const isLegacyAdmin = ['SUPER_ADMIN', 'ADMIN'].includes(userRole)
 
-    const isAdmin = canViewHR || canViewRoles || canViewSettings
+    // ── Permissions matrix (JWT-carried, set at login) ────────────────────────
+    // Read directly from the session to avoid redundant auth() calls inside
+    // checkPermission(), which can silently fall through to a failing DB query
+    // when the JWT permissions field is present but the RolePermission row is not.
+    const rawPerms = (session.user as any).permissions
+    const perms: PermissionMatrix | null =
+        rawPerms == null ? null :
+        typeof rawPerms === 'object' ? rawPerms as PermissionMatrix :
+        typeof rawPerms === 'string' ? (() => { try { return JSON.parse(rawPerms) } catch { return null } })() :
+        null
 
-    const hrManagement = {
-        label: "HR & Employee Portal",
-        href: "#", // Parent item
-        icon: "Briefcase",
-        order: 1,
-        children: [
-            {
-                label: "My Portal",
-                href: "/dashboard/employee",
-                icon: "UserCircle",
-            },
-            {
-                label: "My Requests",
-                href: "/dashboard/requests",
-                icon: "FileText",
-            }
-        ]
-    }
+    // ── Visibility gates ──────────────────────────────────────────────────────
+    // Pattern: GLOBAL_SUPER_ADMIN → always true
+    //          legacy admin roles → always true (full visibility, subject to plan)
+    //          everyone else      → read from the JWT permissions matrix
+    const canViewRoles = isGlobalSuperAdmin || isLegacyAdmin ||
+        perms?.system?.manageRoles === true
 
-    if (canViewHR) {
-        hrManagement.children.push({
-            label: "Staff Directory",
-            href: "/admin/hr",
-            icon: "Users",
-        })
+    const canViewFinance = isGlobalSuperAdmin || isLegacyAdmin ||
+        (perms?.finance?.masterVisible === true &&
+         await checkFeatureGate(tenantId, 'FINANCE'))
 
-        hrManagement.children.push({
-            label: "HR Inbox",
-            href: "/admin/hr/requests",
-            icon: "Inbox",
-        })
+    const canViewSupervision = isGlobalSuperAdmin || isLegacyAdmin ||
+        (perms?.supervision?.view !== 'NONE' && perms?.supervision?.view != null)
 
-        hrManagement.children.push({
-            label: "Attendance Record",
-            href: "/admin/hr/attendance",
-            icon: "CalendarDays",
-        })
+    const canViewProjects = isGlobalSuperAdmin || isLegacyAdmin ||
+        ((perms?.projects?.view !== 'NONE' && perms?.projects?.view != null) &&
+         await checkFeatureGate(tenantId, 'PROJECTS'))
 
-        hrManagement.children.push({
-            label: "Announcements",
-            href: "/admin/hr/events",
-            icon: "Megaphone",
-        })
-    }
+    const canViewSettings = isGlobalSuperAdmin || isLegacyAdmin ||
+        perms?.system?.manageSettings === true
 
-    if (canViewLogs) {
-        hrManagement.children.push({
-            label: "System Audit Logs",
-            href: "/admin/hr/logs",
-            icon: "Activity",
-        })
-    }
+    const canViewCRM =
+        (isGlobalSuperAdmin || isLegacyAdmin || await checkFeatureGate(tenantId, 'CRM')) &&
+        (isGlobalSuperAdmin || isLegacyAdmin || (perms?.projects?.view !== 'NONE' && perms?.projects?.view != null))
 
-    if (canViewRoles) {
-        hrManagement.children.push({
-            label: "Access Control",
-            href: "/admin/users",
-            icon: "ShieldAlert",
-        })
-    }
+    // Brands: admin-level concept — GSA, legacy admins, or users who can manage settings
+    const canViewBrands = isGlobalSuperAdmin || isLegacyAdmin ||
+        perms?.system?.manageSettings === true
 
     const menuLinks: any = [
         { label: "Dashboard", href: "/dashboard", icon: "LayoutDashboard", order: 0 },
-        hrManagement
+        { label: "HR Hub", href: "/admin/hr", icon: "Users", order: 1 },
     ].sort((a: any, b: any) => a.order - b.order)
 
     if (canViewSupervision) {
@@ -105,10 +80,12 @@ export async function AppShell({
 
     if (canViewProjects) {
         menuLinks.push({ label: 'Projects', href: '/admin/projects', icon: 'Briefcase', order: 2 })
+        menuLinks.push({ label: 'Task Board', href: '/admin/tasks', icon: 'FolderKanban', order: 2.2 })
     }
 
     if (canViewProjects && canViewCRM) {
         menuLinks.push({ label: 'Clients', href: '/admin/crm', icon: 'UserSquare2', order: 2.5 })
+        menuLinks.push({ label: 'Sales', href: '/admin/crm/leads', icon: 'TrendingUp', order: 2.6 })
     }
 
     if (canViewRoles) {
@@ -133,12 +110,8 @@ export async function AppShell({
         menuLinks.push({ label: 'Settings', href: '/admin/settings/general', icon: 'Settings', order: 100 })
     }
 
-    // Brands - still hardcoded for now or link to projects?
-    const currentUser = session?.user as any
-    if (currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'ADMIN' || currentUser?.role === 'GLOBAL_SUPER_ADMIN') {
-        if (!menuLinks.find((l: any) => l.label === 'Brands')) {
-            menuLinks.push({ label: 'Brands', href: '/admin/brands', icon: 'Building2', order: 4 })
-        }
+    if (canViewBrands) {
+        menuLinks.push({ label: 'Brands', href: '/admin/brands', icon: 'Building2', order: 4 })
     }
 
     return (
@@ -151,7 +124,10 @@ export async function AppShell({
             {/* Mobile Header - Visible on Mobile Only */}
             <div className="md:hidden flex items-center justify-between p-4 bg-primary text-white sticky top-0 z-50 shadow-md">
                 <h1 className="font-bold text-lg">{settings.companyNameEn || 'Dashboard'}</h1>
-                <MobileSidebar menuLinks={menuLinks} settings={settings} user={session.user} />
+                <div className="flex items-center gap-2">
+                    <NotificationBell />
+                    <MobileSidebar menuLinks={menuLinks} settings={settings} user={session.user} />
+                </div>
             </div>
 
             {/* Main Content (Scrollable) */}

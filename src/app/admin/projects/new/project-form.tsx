@@ -16,18 +16,20 @@ interface ProjectFormProps {
     initialData?: any
     systemVat?: number
     projectTypes?: any[]
+    serviceTypes?: any[]
     disciplines?: any[]
     branches?: any[]
     clients?: any[]
 }
 
-export function ProjectForm({ brands, engineers, initialData, systemVat = 15, projectTypes = [], disciplines = [], clients = [] }: ProjectFormProps) {
+export function ProjectForm({ brands, engineers, initialData, systemVat = 15, projectTypes = [], serviceTypes = [], disciplines = [], clients = [] }: ProjectFormProps) {
     const router = useRouter()
     const [error, setError] = useState('')
     const [loading, setLoading] = useState(false)
     const [selectedBrand, setSelectedBrand] = useState(initialData?.brandId || '')
     const [selectedBranch, setSelectedBranch] = useState(initialData?.branchId || '')
-    const [projectType, setProjectType] = useState(initialData?.type || initialData?.serviceType || 'DESIGN')
+    const [projectType, setProjectType] = useState(initialData?.serviceType || 'DESIGN') // Service Type (Design/Supervision/Both)
+    const [selectedProjectTypeId, setSelectedProjectTypeId] = useState(initialData?.projectTypeId || '') // Project Category (Villa/Building/etc)
     const [contractValue, setContractValue] = useState(initialData?.contractValue?.toString() || '')
 
     // Client State + Auto-fill
@@ -108,6 +110,7 @@ export function ProjectForm({ brands, engineers, initialData, systemVat = 15, pr
         formData.set('brandId', selectedBrand)
         if (selectedBranch) formData.set('branchId', selectedBranch)
         formData.set('type', projectType)
+        formData.set('projectTypeId', selectedProjectTypeId)
         formData.set('engineerIds', JSON.stringify(selectedEngineers))
         formData.set('leadEngineerId', leadEngineerId)
         formData.set('disciplines', JSON.stringify(selectedDisciplines))
@@ -155,21 +158,29 @@ export function ProjectForm({ brands, engineers, initialData, systemVat = 15, pr
                         </div>
 
                         <div className="space-y-2">
-                            <Label className="font-bold">Project Type *</Label>
-                            <Select onValueChange={setProjectType} defaultValue={projectType} required>
+                            <Label className="font-bold">Project Category *</Label>
+                            <Select onValueChange={setSelectedProjectTypeId} defaultValue={selectedProjectTypeId} required>
                                 <SelectTrigger className="rounded-xl">
-                                    <SelectValue placeholder="Select Type" />
+                                    <SelectValue placeholder="Select Category (Villa, etc.)" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    {projectTypes.length > 0 ? projectTypes.map(pt => (
+                                    {projectTypes.map((pt: any) => (
+                                        <SelectItem key={pt.id} value={pt.id}>{pt.nameEn}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+
+                        <div className="space-y-2">
+                            <Label className="font-bold">Service Type *</Label>
+                            <Select onValueChange={setProjectType} defaultValue={projectType} required>
+                                <SelectTrigger className="rounded-xl">
+                                    <SelectValue placeholder="Select Service Type" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {serviceTypes.map((pt: any) => (
                                         <SelectItem key={pt.value} value={pt.value}>{pt.labelEn}</SelectItem>
-                                    )) : (
-                                        <>
-                                            <SelectItem value="DESIGN">Design Project</SelectItem>
-                                            <SelectItem value="SUPERVISION">Supervision Project</SelectItem>
-                                            <SelectItem value="BOTH">تصميم وإشراف (Design & Supervision)</SelectItem>
-                                        </>
-                                    )}
+                                    ))}
                                 </SelectContent>
                             </Select>
                         </div>

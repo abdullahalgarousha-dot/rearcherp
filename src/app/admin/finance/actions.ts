@@ -17,13 +17,11 @@ export async function generateMonthlyPayroll(date: Date = new Date()) {
 
     try {
         const monthStart = new Date(date.getFullYear(), date.getMonth(), 1)
-        const nextMonthStart = new Date(date.getFullYear(), date.getMonth() + 1, 1)
 
         // 1. Fetch all active employees with profiles
-        const employees = await (db as any).user.findMany({
+        const employees = await db.user.findMany({
             where: {
                 tenantId,
-                // Ensure they are active employees? Schema doesn't have status on User, maybe check profile exists
                 profile: { isNot: null }
             },
             include: { profile: true }
@@ -45,7 +43,7 @@ export async function generateMonthlyPayroll(date: Date = new Date()) {
             }
 
             // 3. Create or Update SalarySlip
-            await (db as any).salarySlip.upsert({
+            await db.salarySlip.upsert({
                 where: {
                     profileId_month: {
                         profileId: emp.profile.id,
@@ -53,7 +51,7 @@ export async function generateMonthlyPayroll(date: Date = new Date()) {
                     }
                 },
                 create: {
-                    tenantId,
+                    tenantId: tenantId!,
                     profileId: emp.profile.id,
                     month: monthStart,
                     basicSalary: calculation.income.basic,
@@ -111,7 +109,7 @@ export async function getFinancialStatement(startDate?: Date, endDate?: Date) {
         const tenantFilter = isGlobalAdmin ? {} : { tenantId }
 
         // Fetch Incomes (Invoices) — scoped to current tenant (GLOBAL_SUPER_ADMIN sees all)
-        const invoices = await (db as any).invoice.findMany({
+        const invoices = await db.invoice.findMany({
             where: {
                 ...tenantFilter,
                 status: { in: ['ISSUED', 'PAID'] },
@@ -121,7 +119,7 @@ export async function getFinancialStatement(startDate?: Date, endDate?: Date) {
         })
 
         // Fetch Expenses — scoped to current tenant (GLOBAL_SUPER_ADMIN sees all)
-        const expenses = await (db as any).expense.findMany({
+        const expenses = await db.expense.findMany({
             where: {
                 ...tenantFilter,
                 ...(dateFilter ? { date: dateFilter } : {})
@@ -192,7 +190,7 @@ export async function getTaxReport(year: number, quarter: number) {
         const endDate = new Date(year, startMonth + 3, 0)
         const tenantFilter = isGlobalAdmin ? {} : { tenantId }
 
-        const invoices = await (db as any).invoice.findMany({
+        const invoices = await db.invoice.findMany({
             where: {
                 ...tenantFilter,
                 status: { in: ['ISSUED', 'PAID'] },
@@ -200,7 +198,7 @@ export async function getTaxReport(year: number, quarter: number) {
             }
         })
 
-        const expenses = await (db as any).expense.findMany({
+        const expenses = await db.expense.findMany({
             where: {
                 ...tenantFilter,
                 date: { gte: startDate, lte: endDate },
@@ -225,64 +223,117 @@ export async function getTaxReport(year: number, quarter: number) {
     }
 }
 
-export async function createInvoice(formData: FormData) {
+export async function createInvoice(data: any) {
     const session = await auth()
+    const userRole = (session?.user as any)?.role
     const tenantId = (session?.user as any)?.tenantId
-    const isGlobalAdmin = (session?.user as any)?.role === 'GLOBAL_SUPER_ADMIN'
-    const canViewContracts = await hasPermission('finance', 'viewContracts')
-    const canManageMaster = await hasPermission('finance', 'masterVisible')
-    if (!isGlobalAdmin && ((!canViewContracts && !canManageMaster) || !tenantId)) {
-        return { error: "Unauthorized" }
-    }
+
+    const isGlobalAdmin = userRole === 'GLOBAL_SUPER_ADMIN'
+    
+    // Auth Check
+    if (!tenantId && !isGlobalAdmin) return { error: "Unauthorized" }
 
     try {
-        const invoiceNumber = formData.get("invoiceNumber") as string
-        const description = formData.get("description") as string
-        const projectId = formData.get("projectId") as string
-        const baseAmount = parseFloat(formData.get("subtotal") as string) // Renamed subtotal to baseAmount
-        const date = new Date(formData.get("date") as string)
-        const file = formData.get("file") as string // In real app, upload handling
+        const { description, projectId, date, discountType, discountValue, items } = data;
 
-        // Fetch dynamic VAT
-        const settings = await getSystemSettings()
-        const systemVatRate = (settings?.vatPercentage || 15) / 100
+        // 1. Strict Project Verification (IDOR Protection)
+        const project = await db.project.findFirst({
+            where: isGlobalAdmin ? { id: projectId } : { id: projectId, tenantId },
+            include: { client: true }
+        });
 
-        // Assuming project and brand data is available or fetched here
-        // For now, using a placeholder for taxRate logic
-        const project = { brand: { vatNumber: true } }; // Placeholder for project data
-        const taxRate = project.brand?.vatNumber ? systemVatRate : 0 // Or configurable
-        const isExempt = formData.get("isExempt") === "true"
+        if (!project) {
+            return { error: "Project not found or unauthorized access" };
+        }
 
-        // If explicitly exempt, tax is 0. Otherwise, standard 15%
-        const finalTaxRate = isExempt ? 0 : taxRate
-        const vatAmount = baseAmount * finalTaxRate
-        const totalAmount = baseAmount + vatAmount
+        const projectTenantId = project.tenantId;
 
-        await (db as any).invoice.create({
+        // 2. Generate Sequential Invoice Number (Server-Side only)
+        const lastInvoice = await db.invoice.findFirst({
+            where: { tenantId: projectTenantId },
+            orderBy: { sequenceNumber: 'desc' }
+        });
+
+        const nextSequence = (lastInvoice?.sequenceNumber || 0) + 1;
+        const year = new Date(date).getFullYear();
+        const generatedInvoiceNumber = `INV-${year}-${nextSequence.toString().padStart(4, '0')}`;
+
+        // 3. Absolute Server-Side Financial Math
+        let rawItemsSubtotal = 0;
+        const validItems = items.map((item: any) => {
+            const qty = parseFloat(item.quantity) || 0;
+            const price = parseFloat(item.unitPrice) || 0;
+            const lineSubtotal = qty * price;
+            
+            rawItemsSubtotal += lineSubtotal;
+
+            const itemTax = parseFloat((lineSubtotal * 0.15).toFixed(2));
+            const itemTotal = parseFloat((lineSubtotal + itemTax).toFixed(2));
+
+            return {
+                tenantId: projectTenantId,
+                description: String(item.description),
+                quantity: qty,
+                unitPrice: price,
+                taxRate: 0.15,
+                taxAmount: itemTax,
+                totalAmount: itemTotal
+            };
+        });
+
+        // Apply Discount
+        let discountAmount = 0;
+        const dVal = parseFloat(discountValue) || 0;
+        if (discountType === "PERCENTAGE") {
+            discountAmount = rawItemsSubtotal * (Math.min(100, Math.max(0, dVal)) / 100);
+        } else if (discountType === "FIXED") {
+            discountAmount = Math.min(rawItemsSubtotal, Math.max(0, dVal));
+        }
+
+        const taxableSubtotal = parseFloat(Math.max(0, rawItemsSubtotal - discountAmount).toFixed(2));
+        
+        // ZATCA / Standard 15% VAT
+        const vatAmount = parseFloat((taxableSubtotal * 0.15).toFixed(2));
+        const grandTotal = parseFloat((taxableSubtotal + vatAmount).toFixed(2));
+
+        const invoiceType = project.client?.clientType === "INDIVIDUAL" ? "SIMPLIFIED" : "STANDARD";
+
+        // 4. Create Invoice with explicitly propagated tenantId for children
+        await db.invoice.create({
             data: {
-                projectId,
-                tenantId,
-                invoiceNumber: `INV-${projectId || 'N/A'}-${Date.now()}`, // Adjusted invoiceNumber generation
-                baseAmount,
-                taxRate: finalTaxRate,
-                vatAmount,
-                totalAmount,
-                description: formData.get("description") as string,
-                date,
+                tenantId: projectTenantId,
+                projectId: project.id,
+                invoiceNumber: generatedInvoiceNumber,
+                sequenceNumber: nextSequence,
+                invoiceType,
+                discountType: discountType || null,
+                discountValue: dVal,
+                subTotal: taxableSubtotal,
+                baseAmount: taxableSubtotal,
+                taxRate: 0.15,
+                vatAmount: vatAmount,
+                taxAmount: vatAmount,
+                totalAmount: grandTotal,
+                grandTotal: grandTotal,
+                description,
+                date: new Date(date),
                 status: 'ISSUED',
-                file: file || null
+                items: {
+                    create: validItems
+                }
             }
-        })
+        });
 
         revalidatePath('/admin/finance/invoices')
-        revalidatePath('/admin/finance') // Update dashboard
+        revalidatePath('/admin/finance') 
         return { success: true }
 
-    } catch (e) {
+    } catch (e: any) {
         console.error("Create Invoice Error:", e)
-        return { error: "Failed to create invoice" }
+        return { error: e.message || "Failed to create invoice" }
     }
 }
+
 
 export async function createExpense(formData: FormData) {
     const session = await auth()
@@ -296,23 +347,33 @@ export async function createExpense(formData: FormData) {
     try {
         const description = formData.get("description") as string
         const amountBeforeTax = parseFloat(formData.get("amountBeforeTax") as string)
+        if (!amountBeforeTax || amountBeforeTax <= 0) return { error: "Expense amount must be greater than zero" }
         const isTaxRecoverable = formData.get("isTaxRecoverable") === 'on'
         const category = formData.get("category") as string
         const date = new Date(formData.get("date") as string)
         const projectIdRaw = formData.get("projectId") as string
         const projectId = projectIdRaw === 'none' ? null : projectIdRaw
 
+        // 1. Secure Project Verification (IDOR Prevention)
+        if (projectId) {
+            const project = await db.project.findFirst({
+                where: { id: projectId, tenantId }
+            })
+            if (!project) return { error: "Unauthorized: Project not found or belongs to another tenant" }
+        }
+
         const receiptFile = formData.get("receipt") as File | null
         const receipt = receiptFile && receiptFile.size > 0 ? receiptFile.name : null
 
+        // 2. Tenant-Aware VAT Settings
         const settings = await getSystemSettings()
         const taxRate = (settings?.vatPercentage || 15) / 100
-        const taxAmount = amountBeforeTax * taxRate
-        const totalAmount = amountBeforeTax + taxAmount
+        const taxAmount = Math.round(amountBeforeTax * taxRate * 100) / 100
+        const totalAmount = Math.round((amountBeforeTax + taxAmount) * 100) / 100
 
-        await (db as any).expense.create({
+        await db.expense.create({
             data: {
-                tenantId,
+                tenantId: tenantId!,
                 description,
                 amountBeforeTax,
                 taxRate,

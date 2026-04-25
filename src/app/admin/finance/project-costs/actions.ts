@@ -13,23 +13,19 @@ export async function getProjectCosts() {
         throw new Error("Unauthorized")
     }
 
+    const tenantId = (session?.user as any).tenantId
+    if (!tenantId) return []
+
     try {
-        const tenantId = (session?.user as any).tenantId
-        const projects = await (db as any).project.findMany({
+        const projects = await db.project.findMany({
             where: isGlobalAdmin ? {} : { tenantId },
             include: {
                 timeLogs: {
                     include: {
                         user: {
-                            include: {
-                                profile: {
-                                    select: {
-                                        basicSalary: true,
-                                        housingAllowance: true,
-                                        transportAllowance: true,
-                                        otherAllowance: true,
-                                    }
-                                }
+                            select: {
+                                id: true,
+                                name: true
                             }
                         }
                     }
@@ -45,14 +41,10 @@ export async function getProjectCosts() {
 
             project.timeLogs.forEach((log: any) => {
                 const hours = log.hoursLogged || 0
-                const profile = log.user?.profile
-
-                // Formula: (BasicSalary + HousingAllowance + TransportAllowance + OtherAllowance) / 180 * Hours
-                const monthlySalary = profile
-                    ? ((profile.basicSalary || 0) + (profile.housingAllowance || 0) + (profile.transportAllowance || 0) + (profile.otherAllowance || 0))
-                    : 0
-                const derivedHourlyRate = monthlySalary > 0 ? monthlySalary / 180 : 0
-                const cost = hours * derivedHourlyRate
+                
+                // ERP Principle: Use the immutable saved cost from the database recorded at the time of log entry
+                const cost = log.cost || 0
+                const derivedHourlyRate = hours > 0 ? cost / hours : 0
 
                 totalHours += hours
                 estimatedCost += cost
@@ -81,6 +73,7 @@ export async function getProjectCosts() {
         })
 
         return projectsWithCosts
+
     } catch (error) {
         console.error("Error fetching project costs:", error)
         throw new Error("Failed to load project costs")

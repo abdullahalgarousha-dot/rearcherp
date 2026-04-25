@@ -152,17 +152,19 @@ export async function generateDriveLinkForProject(projectId: string) {
     const session = await auth()
     const canWrite = await checkPermission('PROJECTS', 'write')
     if (!canWrite) return { error: "Unauthorized" }
+    const tenantId = (session?.user as any)?.tenantId
+    if (!tenantId) return { error: "Tenant context missing" }
 
     try {
+        // Compound filter: id + tenantId prevents cross-tenant project access
         const project = await (db as any).project.findUnique({
-            where: { id: projectId },
+            where: { id: projectId, tenantId },
             include: { brand: true }
         })
 
         if (!project) return { error: "Project not found" }
 
-        const { initializeProjectStructure, initializeBrandStructure, getDriveSettings } = await import('@/lib/google-drive')
-        const tenantId = (session?.user as any).tenantId
+        const { createProjectFolders, getDriveSettings } = await import('@/lib/google-drive')
 
         try {
             await getDriveSettings(tenantId)
@@ -171,15 +173,18 @@ export async function generateDriveLinkForProject(projectId: string) {
         }
 
         const brandName = project.brand?.nameEn || "DefaultBrand"
-        await initializeBrandStructure(tenantId, brandName)
-        const folderId = await initializeProjectStructure(tenantId, brandName, project.code, project.name, project.serviceType);
-        const link = `https://drive.google.com/drive/folders/${folderId}`
+        const folderMap = await createProjectFolders(tenantId, brandName, project.code, project.name, {
+            serviceType: project.serviceType || 'DESIGN',
+            disciplines: project.disciplines ? project.disciplines.split(',') : [],
+        })
+        const link = `https://drive.google.com/drive/folders/${folderMap.root}`
 
         await (db as any).project.update({
             where: { id: projectId },
             data: {
-                driveFolderId: folderId,
-                driveLink: link
+                driveFolderId:    folderMap.root,
+                driveLink:        link,
+                driveSubFolderIds: JSON.stringify(folderMap),
             }
         })
 
@@ -196,18 +201,20 @@ export async function generateDriveLinkForProject(projectId: string) {
 export async function generateAllMissingDriveFolders() {
     const canManageDrive = await hasPermission('projects', 'canAccessDrive')
     const session = await auth()
-    const isSuperAdmin = session?.user && ((session.user as any).role === 'SUPER_ADMIN' || (session.user as any).role === 'ADMIN')
+    const isSuperAdmin = session?.user && ['GLOBAL_SUPER_ADMIN', 'SUPER_ADMIN', 'ADMIN'].includes((session.user as any).role)
 
     if (!canManageDrive && !isSuperAdmin) return { error: "Unauthorized" }
 
     try {
+        // Scope to caller's tenant — prevents cross-tenant batch operations
         const projects = await (db as any).project.findMany({
+            where: { tenantId: (session?.user as any)?.tenantId },
             include: { brand: true }
         })
 
         if (!projects || projects.length === 0) return { success: true, count: 0 }
 
-        const { initializeProjectStructure, initializeBrandStructure, getDriveSettings } = await import('@/lib/google-drive')
+        const { createProjectFolders, getDriveSettings } = await import('@/lib/google-drive')
         const tenantId = (session?.user as any).tenantId
 
         try {
@@ -222,15 +229,18 @@ export async function generateAllMissingDriveFolders() {
         for (const project of projects) {
             try {
                 const brandName = project.brand?.nameEn || "DefaultBrand"
-                await initializeBrandStructure(tenantId, brandName)
-                const folderId = await initializeProjectStructure(tenantId, brandName, project.code, project.name, project.serviceType);
-                const link = `https://drive.google.com/drive/folders/${folderId}`
+                const folderMap = await createProjectFolders(tenantId, brandName, project.code, project.name, {
+                    serviceType: project.serviceType || 'DESIGN',
+                    disciplines: project.disciplines ? project.disciplines.split(',') : [],
+                })
+                const link = `https://drive.google.com/drive/folders/${folderMap.root}`
 
                 await (db as any).project.update({
                     where: { id: project.id },
                     data: {
-                        driveFolderId: folderId,
-                        driveLink: link
+                        driveFolderId:    folderMap.root,
+                        driveLink:        link,
+                        driveSubFolderIds: JSON.stringify(folderMap),
                     }
                 })
                 successCount++;
@@ -263,7 +273,7 @@ export async function getProjectLiveFiles(projectId: string) {
             return { files: [] } // No real drive configured
         }
 
-        const isAdmin = ['ADMIN', 'SUPER_ADMIN'].includes((session?.user as any)?.role)
+        const isAdmin = ['GLOBAL_SUPER_ADMIN', 'SUPER_ADMIN', 'ADMIN'].includes((session?.user as any)?.role)
         const isAssigned = project.engineers.some((e: any) => e.id === session?.user?.id) || project.leadEngineerId === session?.user?.id
 
         if (!isAdmin && !isAssigned) {

@@ -107,7 +107,7 @@ export function ProjectGrid({ projects }: ProjectGridProps) {
                                         {serviceLabel}
                                     </span>
                                     <Badge variant="outline" className="rounded-lg border-slate-200 text-slate-500 font-bold bg-slate-50 uppercase text-[9px] tracking-tighter">
-                                        {project.brand?.shortName || project.brand?.nameEn}
+                                        {project.brand?.shortName || project.brand?.nameEn || 'Unbranded'}
                                     </Badge>
                                 </div>
 

@@ -40,9 +40,9 @@ export function TimesheetWidget({ projects, tasks = [], dailyGoal = 8 }: { proje
             return
         }
 
-        // Project is only required for 'SITE' type, or keep it optional for 'OFFICE'
-        if (activeTab === 'site' && !projectId) {
-            toast.error("Please select a project for site work")
+        // Project is MANDATORY for all types of work (Site/Office)
+        if (!projectId) {
+            toast.error("Please select a project. Every hour must be anchored to a Cost Center.")
             return
         }
 
@@ -52,7 +52,7 @@ export function TimesheetWidget({ projects, tasks = [], dailyGoal = 8 }: { proje
             hoursLogged: parseFloat(hours),
             description,
             type: activeTab === 'site' ? "SITE" : "OFFICE",
-            projectId: projectId || undefined
+            projectId
         })
         setLoading(false)
 

@@ -37,11 +37,18 @@ export async function getTaxReports(startDate: Date, endDate: Date) {
         })
     ])
 
-    const totalRevenue = invoices.reduce((sum: number, inv: any) => sum + inv.baseAmount, 0)
-    const totalSalesVat = invoices.reduce((sum: number, inv: any) => sum + inv.vatAmount, 0)
-    const grandTotal = invoices.reduce((sum: number, inv: any) => sum + inv.totalAmount, 0)
-    const totalPurchaseVat = expenses.reduce((sum: number, exp: any) => sum + (exp.taxAmount || 0), 0)
-    const netVatLiability = totalSalesVat - totalPurchaseVat
+    // TARGET 3: JS float accumulation across many rows produces values like
+    // 14999.999999998 instead of 15000.00.  For ZATCA filings every figure must
+    // be exact to 2 decimal places.  Round each aggregate independently, then
+    // derive netVatLiability from the already-rounded operands to avoid a second
+    // rounding error being introduced by the subtraction itself.
+    const round2 = (n: number) => Math.round(n * 100) / 100
+
+    const totalRevenue     = round2(invoices.reduce((sum: number, inv: any) => sum + inv.baseAmount, 0))
+    const totalSalesVat    = round2(invoices.reduce((sum: number, inv: any) => sum + inv.vatAmount,  0))
+    const grandTotal       = round2(invoices.reduce((sum: number, inv: any) => sum + inv.totalAmount, 0))
+    const totalPurchaseVat = round2(expenses.reduce((sum: number, exp: any) => sum + (exp.taxAmount || 0), 0))
+    const netVatLiability  = round2(totalSalesVat - totalPurchaseVat)
 
     return {
         invoices,

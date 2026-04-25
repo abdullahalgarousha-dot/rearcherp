@@ -1,6 +1,7 @@
 import { auth } from "@/auth"
 import { redirect } from "next/navigation"
 import { db } from "@/lib/db"
+import { hasPermission } from "@/lib/rbac"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { ProjectGrid } from "@/components/projects/project-grid"
@@ -11,20 +12,48 @@ export default async function ProjectsPage({ searchParams }: { searchParams: Pro
     const session = await auth()
     const user = session?.user as any
 
-    // Basic access control
     if (!user) return redirect('/login')
 
     const tenantId = user.tenantId as string
+    const userRole = user.role as string
+
+    // Admin bypass: GSA + legacy admins see all tenants; all others scoped to their own
+    const isAdmin =
+        userRole === 'GLOBAL_SUPER_ADMIN' ||
+        userRole === 'SUPER_ADMIN' ||
+        userRole === 'ADMIN'
+
+    const isGlobalSuperAdmin = userRole === 'GLOBAL_SUPER_ADMIN'
+
+    // ── Permission-matrix-driven project scope ────────────────────────────────
+    // 'ALL'      → see every project for the tenant
+    // 'ASSIGNED' → only projects the user is lead or team member on
+    // 'NONE'     → no project access → redirect away
+    const projectViewScope = await hasPermission('projects', 'view')
+    if (projectViewScope === 'NONE') redirect('/dashboard')
 
     const { brand, tab } = await searchParams
     const currentTab = tab || 'active'
 
-    const where: any = { tenantId }
+    // GLOBAL_SUPER_ADMIN (tenantId="system") scopes across all tenants.
+    // Everyone else scopes to their own tenant.
+    const tenantScopeFilter: any = isGlobalSuperAdmin ? {} : { tenantId }
+
+    // Build the main project WHERE from scope + UI filters
+    const where: any = { ...tenantScopeFilter }
+
+    // For ASSIGNED scope, add the assignment filter so only the user's projects appear.
+    if (projectViewScope === 'ASSIGNED') {
+        where.OR = [
+            { engineers: { some: { id: user.id } } },
+            { leadEngineerId: user.id }
+        ]
+    }
+
     if (brand && brand !== 'all') {
         where.brandId = brand
     }
 
-    // Filter by Status based on Tab
     if (currentTab === 'active') {
         where.status = 'ACTIVE'
     } else if (currentTab === 'on_hold') {
@@ -33,8 +62,15 @@ export default async function ProjectsPage({ searchParams }: { searchParams: Pro
         where.status = 'COMPLETED'
     }
 
-    const [brands, projectsData, allProjectsCount, activeProjectsCount, totalContractValue, globalNCRCount, globalIRCount] = await Promise.all([
-        db.brand.findMany({ where: { tenantId } }),
+    // Brands: query Brand table directly — admins see all, others scoped to their tenant.
+    // Use (db as any) to bypass stale typed-client issues post-schema-change.
+    const brandWhere = isAdmin ? {} : { tenantId }
+
+    const [rawBrands, projectsData, allProjectsCount, activeProjectsCount, totalContractValue, globalNCRCount, globalIRCount] = await Promise.all([
+        (db as any).brand.findMany({
+            where: brandWhere,
+            orderBy: { nameEn: 'asc' },
+        }),
         (db as any).project.findMany({
             where,
             include: {
@@ -45,15 +81,23 @@ export default async function ProjectsPage({ searchParams }: { searchParams: Pro
             },
             orderBy: { createdAt: 'desc' }
         }),
-        db.project.count({ where: { tenantId } }),
-        db.project.count({ where: { tenantId, status: 'ACTIVE' } }),
+        db.project.count({ where: tenantScopeFilter }),
+        db.project.count({ where: { ...tenantScopeFilter, status: 'ACTIVE' } }),
         (db as any).project.aggregate({
-            where: { tenantId },
+            where: tenantScopeFilter,
             _sum: { contractValue: true }
         }),
-        db.nCR.count({ where: { tenantId } }),
-        db.inspectionRequest.count({ where: { tenantId } })
+        db.nCR.count({ where: tenantScopeFilter }),
+        db.inspectionRequest.count({ where: tenantScopeFilter })
     ])
+
+    // Deduplicate brands by id — guards against accidental duplicate rows in DB
+    const seen = new Set<string>()
+    const brands = (rawBrands as any[]).filter(b => {
+        if (seen.has(b.id)) return false
+        seen.add(b.id)
+        return true
+    })
 
     // Serializer for handling Prisma Decimal/Date types
     const serialize = (data: any) => JSON.parse(JSON.stringify(data))

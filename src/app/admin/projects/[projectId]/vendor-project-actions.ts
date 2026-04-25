@@ -76,7 +76,7 @@ export async function updateSubContract(subContractId: string, data: {
 export async function deleteSubContract(subContractId: string) {
     const session = await auth()
     const user = session?.user as any
-    const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN'
+    const isAdmin = ['GLOBAL_SUPER_ADMIN', 'SUPER_ADMIN', 'ADMIN'].includes(user?.role)
     const canManage = await hasPermission('finance', 'masterVisible')
     if (!isAdmin && !canManage) return { error: "Unauthorized" }
 
@@ -142,7 +142,7 @@ export async function updateMilestoneStatus(
     const user = session?.user as any
 
     // CRITICAL RBAC: Only 'Approve Finance' permission holders can mark as PAID
-    const isSuperAdmin = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN'
+    const isSuperAdmin = ['GLOBAL_SUPER_ADMIN', 'SUPER_ADMIN', 'ADMIN'].includes(user?.role)
     const canApprove = await hasPermission('finance', 'canApproveFinance')
 
     if (!isSuperAdmin && !canApprove) {
@@ -256,7 +256,7 @@ export async function deleteMilestone(milestoneId: string) {
     const canManage = await hasPermission('finance', 'masterVisible')
     const session = await auth()
     const user = session?.user as any
-    const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN'
+    const isAdmin = ['GLOBAL_SUPER_ADMIN', 'SUPER_ADMIN', 'ADMIN'].includes(user?.role)
     if (!isAdmin && !canManage) return { error: "Unauthorized" }
 
     try {

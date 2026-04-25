@@ -176,7 +176,7 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
                                                 </td>
                                                 <td className="px-6 py-4">
                                                     <Badge variant="secondary" className="bg-slate-100">
-                                                        {project.brand.nameEn}
+                                                        {project.brand?.nameEn || 'N/A'}
                                                     </Badge>
                                                 </td>
                                                 <td className="px-6 py-4">

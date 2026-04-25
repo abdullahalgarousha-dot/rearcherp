@@ -23,6 +23,7 @@ const brandSchema = z.object({
     accentColor: z.string(),
     taxNumber: z.string().optional(),
     crNumber: z.string().optional(),
+    nationalAddress: z.string().optional(),
     bankName: z.string().optional(),
     iban: z.string().optional(),
     addressAr: z.string().optional(),
@@ -41,6 +42,7 @@ interface BrandFormProps {
 export function BrandForm({ brand, tenantId, onSuccess }: BrandFormProps) {
     const [loading, setLoading] = useState(false)
     const [logoPreview, setLogoPreview] = useState<string>(brand?.logoUrl || "")
+    const [selectedFile, setSelectedFile] = useState<File | null>(null)
     const fileInputRef = useRef<HTMLInputElement>(null)
     const isEdit = !!brand
 
@@ -57,6 +59,7 @@ export function BrandForm({ brand, tenantId, onSuccess }: BrandFormProps) {
             accentColor: brand?.accentColor || "#059669",
             taxNumber: brand?.taxNumber || "",
             crNumber: brand?.crNumber || "",
+            nationalAddress: brand?.nationalAddress || "",
             bankName: brand?.bankName || "",
             iban: brand?.iban || "",
             addressAr: brand?.addressAr || "",
@@ -72,11 +75,10 @@ export function BrandForm({ brand, tenantId, onSuccess }: BrandFormProps) {
             toast.error("Logo must be under 2 MB")
             return
         }
+        setSelectedFile(file)
         const reader = new FileReader()
         reader.onload = (ev) => {
-            const base64 = ev.target?.result as string
-            setLogoPreview(base64)
-            form.setValue("logoUrl", base64)
+            setLogoPreview(ev.target?.result as string)
         }
         reader.readAsDataURL(file)
     }
@@ -84,11 +86,25 @@ export function BrandForm({ brand, tenantId, onSuccess }: BrandFormProps) {
     const onSubmit: SubmitHandler<BrandFormValues> = async (values) => {
         setLoading(true)
         try {
+            const formData = new FormData()
+            
+            // Append all fields EXCEPT logoUrl to prevent sending giant base64 strings
+            Object.entries(values).forEach(([key, value]) => {
+                if (key !== "logoUrl" && value !== undefined && value !== null) {
+                    formData.append(key, value.toString())
+                }
+            })
+
+            // Append binary file if selected using a dedicated key
+            if (selectedFile) {
+                formData.append("logoFile", selectedFile)
+            }
+
             let res
             if (isEdit) {
-                res = await updateBrand(brand.id, values)
+                res = await updateBrand(brand.id, formData)
             } else {
-                res = await createBrand(tenantId, values)
+                res = await createBrand(tenantId, formData)
             }
 
             if (res.success) {
@@ -202,7 +218,11 @@ export function BrandForm({ brand, tenantId, onSuccess }: BrandFormProps) {
                                         variant="ghost"
                                         size="sm"
                                         className="w-full rounded-xl text-slate-400 hover:text-red-500 text-xs"
-                                        onClick={() => { setLogoPreview(""); form.setValue("logoUrl", "") }}
+                                        onClick={() => { 
+                                            setLogoPreview(""); 
+                                            setSelectedFile(null);
+                                            form.setValue("logoUrl", "");
+                                        }}
                                     >
                                         <X className="h-3 w-3 mr-1" /> Remove
                                     </Button>
@@ -228,6 +248,11 @@ export function BrandForm({ brand, tenantId, onSuccess }: BrandFormProps) {
                     <div className="space-y-2">
                         <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">CR Number</Label>
                         <Input {...form.register("crNumber")} className="rounded-xl border-slate-200 font-mono" />
+                    </div>
+
+                    <div className="space-y-2">
+                        <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">National Address | العنوان الوطني</Label>
+                        <Input {...form.register("nationalAddress")} placeholder="e.g. 1234 King Fahad Rd, Riyadh" className="rounded-xl border-slate-200 font-medium" />
                     </div>
                 </div>
             </div>

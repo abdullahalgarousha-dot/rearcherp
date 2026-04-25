@@ -10,7 +10,11 @@ export default async function NewDSRProjectSelect() {
     const session = await auth()
     if (!session) redirect('/login')
 
+    const tenantId = (session.user as any)?.tenantId
+    if (!tenantId) redirect('/login')
+
     const projects = await db.project.findMany({
+        where: { tenantId },
         orderBy: { updatedAt: 'desc' },
         include: { brand: true }
     })

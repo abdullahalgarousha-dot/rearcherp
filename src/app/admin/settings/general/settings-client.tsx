@@ -11,10 +11,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
+import { Trash2 } from "lucide-react"
 import {
     updateSystemSettings,
     upsertSystemLookup,
     toggleSystemLookup,
+    deleteSystemLookup,
     testDriveConnection
 } from "@/app/actions/settings"
 import { generateAllMissingDriveFolders } from "@/app/admin/projects/actions"
@@ -59,6 +61,12 @@ export function SettingsClient({ initialSettings, lookups, branches }: { initial
 
     async function handleToggleLookup(id: string, currentStatus: boolean) {
         await toggleSystemLookup(id, currentStatus)
+        router.refresh()
+    }
+
+    async function handleDeleteLookup(id: string, label: string) {
+        if (!confirm(`Delete "${label}"? This cannot be undone.`)) return
+        await deleteSystemLookup(id)
         router.refresh()
     }
 
@@ -397,10 +405,19 @@ export function SettingsClient({ initialSettings, lookups, branches }: { initial
                                             </Badge>
                                         </TableCell>
                                         <TableCell className="text-right">
-                                            <Switch
-                                                checked={lookup.isActive}
-                                                onCheckedChange={() => handleToggleLookup(lookup.id, lookup.isActive)}
-                                            />
+                                            <div className="flex items-center justify-end gap-2">
+                                                <Switch
+                                                    checked={lookup.isActive}
+                                                    onCheckedChange={() => handleToggleLookup(lookup.id, lookup.isActive)}
+                                                />
+                                                <button
+                                                    onClick={() => handleDeleteLookup(lookup.id, lookup.labelEn)}
+                                                    className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                                                    title="Delete"
+                                                >
+                                                    <Trash2 className="h-4 w-4" />
+                                                </button>
+                                            </div>
                                         </TableCell>
                                     </TableRow>
                                 ))}

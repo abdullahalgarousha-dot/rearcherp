@@ -6,6 +6,30 @@ import { revalidatePath } from "next/cache"
 import { hasPermission } from "@/lib/rbac"
 import { uploadSmartFileToDrive } from "@/lib/google-drive"
 
+async function createFinanceAuditTrail(data: {
+    action: string,
+    entityId: string,
+    entityType: string,
+    details: string
+}) {
+    const session = await auth()
+    const userId = (session?.user as any)?.id
+    const tenantId = (session?.user as any)?.tenantId
+
+    if (!userId || !tenantId) return
+
+    await (db as any).financeAuditTrail.create({
+        data: {
+            tenantId,
+            userId,
+            action: data.action,
+            entityId: data.entityId,
+            entityType: data.entityType,
+            details: data.details
+        }
+    })
+}
+
 /**
  * Calculates real-time P&L for a specific project.
  * Includes Revenue (Contract + VOs), Direct Costs (Expenses + Vendors),
@@ -140,6 +164,13 @@ export async function createVariationOrder(projectId: string, data: { title: str
         }
     })
 
+    await createFinanceAuditTrail({
+        action: "CREATE_VO",
+        entityId: vo.id,
+        entityType: "VariationOrder",
+        details: `Created Variation Order: ${data.title} for SAR ${data.amount}`
+    })
+
     return vo
 }
 
@@ -168,6 +199,14 @@ export async function approveVariationOrder(voId: string) {
     })
 
     revalidatePath(`/admin/projects/${vo.projectId}`)
+
+    await createFinanceAuditTrail({
+        action: "APPROVE_VO",
+        entityId: vo.id,
+        entityType: "VariationOrder",
+        details: `Approved VO: ${vo.title}. Contract value incremented by ${vo.amount}`
+    })
+
     return vo
 }
 
@@ -245,6 +284,14 @@ export async function createInvoice(projectId: string, data: {
     }
 
     revalidatePath(`/admin/projects/${projectId}`)
+
+    await createFinanceAuditTrail({
+        action: "CREATE_INVOICE",
+        entityId: invoice.id,
+        entityType: "Invoice",
+        details: `Issued Invoice #${data.invoiceNumber} for Total: SAR ${totalAmount}`
+    })
+
     return invoice
 }
 
@@ -321,5 +368,13 @@ export async function updateProjectStatus(projectId: string, status: string) {
     }
 
     revalidatePath(`/admin/projects/${projectId}`)
+
+    await createFinanceAuditTrail({
+        action: "UPDATE_STATUS",
+        entityId: projectId,
+        entityType: "Project",
+        details: `Project status changed to: ${status}`
+    })
+
     return project
 }
