@@ -171,25 +171,8 @@ export default auth((req) => {
             return NextResponse.redirect(new URL("/dashboard", req.nextUrl))
         }
 
-        // RBAC — module gates (ADMIN and super roles bypass these)
-        const bypassModuleGates = isAdmin
-        if (!bypassModuleGates) {
-            if (pathname.startsWith("/admin/hr") && !checkModule("HR")) {
-                return NextResponse.redirect(new URL("/dashboard?error=upgrade", req.nextUrl))
-            }
-            if (pathname.startsWith("/admin/finance")) {
-                if (!checkModule("FINANCE"))
-                    return NextResponse.redirect(new URL("/dashboard?error=upgrade", req.nextUrl))
-                if (pathname.includes("/zatca") && !checkModule("ZATCA"))
-                    return NextResponse.redirect(new URL("/dashboard?error=upgrade", req.nextUrl))
-            }
-            if (pathname.includes("/gantt") && !checkModule("GANTT")) {
-                return NextResponse.redirect(new URL("/dashboard?error=upgrade", req.nextUrl))
-            }
-            if (pathname.startsWith("/admin/crm") && !checkModule("CRM")) {
-                return NextResponse.redirect(new URL("/dashboard?error=upgrade", req.nextUrl))
-            }
-        }
+        // NOTE: Module-level gates (GANTT, ZATCA, etc.) are now UNLOCKED for all tiers per TO-PO rebranding.
+        // Subscription limits now only apply to Resource counts (Users/Branches) and Custom Domains.
     }
 
     // ── Pass through with tenant hint header ──────────────────────────────────

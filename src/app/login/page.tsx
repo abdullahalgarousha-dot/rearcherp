@@ -4,7 +4,7 @@ import { LoginForm } from "./login-form"
 
 export default async function LoginPage() {
     const settings = await getSystemSettings()
-    const companyName = settings.companyNameEn || "ERP"
+    const companyName = settings.companyNameEn || "TO-PO Engineering"
     const companyNameAr = settings.companyNameAr || ""
 
     return (

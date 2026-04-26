@@ -1,4 +1,5 @@
 import { auth } from "@/auth"
+import { db } from "@/lib/db"
 import { redirect } from "next/navigation"
 import { checkPermission } from "@/lib/rbac"
 import { getSystemSettings, getSystemLookups } from "@/app/actions/settings"
@@ -16,9 +17,14 @@ export default async function MasterSettingsPage() {
 
     // Fetch master config and lookups server-side
     const settings = await getSystemSettings()
-
     const lookups = await getSystemLookups(undefined, true)
     const branches = await getBranches()
+
+    const tenantId = (session?.user as any)?.tenantId
+    const tenant = await db.tenant.findUnique({
+        where: { id: tenantId },
+        include: { plan: true }
+    })
 
     return (
         <div className="space-y-8 max-w-5xl mx-auto pb-20">
@@ -34,7 +40,7 @@ export default async function MasterSettingsPage() {
                 </div>
             </div>
 
-            <SettingsClient initialSettings={settings} lookups={lookups} branches={branches} />
+            <SettingsClient initialSettings={settings} lookups={lookups} branches={branches} tenant={tenant} />
             <DangerZone />
         </div>
     )

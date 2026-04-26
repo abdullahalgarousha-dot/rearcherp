@@ -63,7 +63,7 @@ async function main() {
     await prisma.role.deleteMany({ where: { tenantId: tid } })
     await prisma.brand.deleteMany({ where: { tenantId: tid } })
     await prisma.branch.deleteMany({ where: { tenantId: tid } })
-    await prisma.user.deleteMany({ where: { tenantId: tid, email: { not: 'super@rearch.sa' } } })
+    await prisma.user.deleteMany({ where: { tenantId: tid, email: { not: 'super@topo-eng.sa' } } })
     console.log('✅ Cleared.\n')
   }
 
@@ -246,9 +246,9 @@ async function main() {
   // PHASE 5 — USERS & EMPLOYEE PROFILES (16 total)
   // ════════════════════════════════════════════════════════
   const superAdmin = await prisma.user.upsert({
-    where: { email: 'super@rearch.sa' },
+    where: { email: 'super@topo-eng.sa' },
     update: { role: 'GLOBAL_SUPER_ADMIN', name: 'Abdullah Al-Rashidi', tenantId: tenant.id, roleId: roles['Super Admin'].id },
-    create: { email: 'super@rearch.sa', password, name: 'Abdullah Al-Rashidi', role: 'GLOBAL_SUPER_ADMIN', tenantId: tenant.id, roleId: roles['Super Admin'].id },
+    create: { email: 'super@topo-eng.sa', password, name: 'Abdullah Al-Rashidi', role: 'GLOBAL_SUPER_ADMIN', tenantId: tenant.id, roleId: roles['Super Admin'].id },
   })
 
   const superProfile = await prisma.employeeProfile.upsert({
@@ -334,7 +334,7 @@ async function main() {
       },
     })
   }
-  console.log(`✅ Users & Employees: ${allUsers.length} total (incl. super@rearch.sa)`)
+  console.log(`✅ Users & Employees: ${allUsers.length} total (incl. super@topo-eng.sa)`)
 
   // ════════════════════════════════════════════════════════
   // PHASE 6 — CLIENTS
@@ -695,7 +695,7 @@ async function main() {
   console.log('   FTS DEMO ERP — FULLY ALIVE & POPULATED!')
   console.log('══════════════════════════════════════════════════════')
   console.log(`   Tenant       : ${tenant.name}  (slug: "${tenant.slug}")`)
-  console.log(`   Admin Login  : super@rearch.sa  /  Demo@1234`)
+  console.log(`   Admin Login  : super@topo-eng.sa  /  Demo@1234`)
   console.log(`   Users        : ${allUsers.length}  (incl. super admin)`)
   console.log(`   Roles        : 5 RBAC roles with granular permissions`)
   console.log(`   Settings     : ${settingsData.length} system settings + company profile`)

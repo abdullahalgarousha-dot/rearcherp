@@ -21,6 +21,8 @@ model SubscriptionPlan {
   currency       String   @default("SAR")
   allowedModules Json     @default("[]")
   maxUsers       Int      @default(0) // 0 = unlimited
+  maxBranches    Int      @default(0) // 0 = unlimited
+  allowCustomDomain Boolean @default(false)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
   tenants        Tenant[]
@@ -338,6 +340,7 @@ model Brand {
   vatNumber     String?
   bankName      String?
   iban          String?
+  driveFolderId String?
   accountHolder String?
   addressAr     String?
   addressEn     String?

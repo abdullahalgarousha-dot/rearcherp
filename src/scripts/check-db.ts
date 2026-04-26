@@ -6,7 +6,7 @@ async function main() {
     console.log('--- DATABASE CHECK ---')
     try {
         const user = await prisma.user.findUnique({
-            where: { email: 'super@rearch.sa' },
+            where: { email: 'super@topo-eng.sa' },
             include: { userRole: true, tenant: true }
         })
 

@@ -38,7 +38,7 @@ export default function SetupWizard() {
         })
 
         if (result.success) {
-            toast.success("Setup completed! Welcome to REARCH.")
+            toast.success("Setup completed! Welcome to TO-PO.")
             router.push("/dashboard")
             router.refresh()
         } else {
@@ -113,7 +113,7 @@ export default function SetupWizard() {
                             <div>
                                 <h1 className="text-2xl font-black mb-2">Connect Google Drive</h1>
                                 <p className="text-slate-400 max-w-md mx-auto">
-                                    REARCH uses your Google Drive to store project files, NCR photos, and financial reports in a secure, structured hierarchy.
+                                    TO-PO uses your Google Drive to store project files, NCR photos, and financial reports in a secure, structured hierarchy.
                                 </p>
                             </div>
                             <Button className="w-full h-14 bg-white text-slate-950 hover:bg-slate-200 font-bold rounded-2xl flex items-center justify-center gap-3">
@@ -123,7 +123,7 @@ export default function SetupWizard() {
                                     <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05" />
                                     <path d="M12 5.38c1.62 0 3.06.56 4.21 1.66l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" />
                                 </svg>
-                                Authorize REARCH Drive Access
+                                Authorize TO-PO Drive Access
                             </Button>
                             <p className="text-xs text-slate-500">
                                 This creates a secure token stored only for your tenant. We never access your personal files.
@@ -196,7 +196,7 @@ export default function SetupWizard() {
 
                 <div className="mt-8 text-center">
                     <p className="text-slate-600 text-xs">
-                        REARCH v1.0.0 — Licensed for your engineering firm.
+                        TO-PO v1.0.0 — Licensed for your engineering firm.
                     </p>
                 </div>
             </div>

@@ -3,6 +3,7 @@
 import { db } from "@/lib/db"
 import { revalidatePath } from "next/cache"
 import { auth } from "@/auth"
+import { enforceBranchLimit } from "@/lib/subscription-guards"
 
 /** Returns only branches belonging to the caller's tenant — isolation enforced */
 export async function getBranches() {
@@ -24,6 +25,9 @@ export async function createBranch(formData: FormData) {
     if (userRole !== 'GLOBAL_SUPER_ADMIN' && userRole !== 'SUPER_ADMIN' && userRole !== 'ADMIN') {
         throw new Error("Unauthorized: insufficient role")
     }
+
+    // Apply subscription limit
+    await enforceBranchLimit(tenantId)
 
     await (db as any).branch.create({
         data: {

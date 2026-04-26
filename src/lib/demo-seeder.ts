@@ -7,18 +7,24 @@ export async function seedDemoTenant() {
 
         // 0. Ensure Enterprise Plan exists for Demo
         const enterprisePlan = await (db as any).subscriptionPlan.upsert({
-            where: { name: "Enterprise" },
+            where: { name: "Elite" },
             update: {
                 allowedModules: ["HR", "FINANCE", "GANTT", "ZATCA", "PROJECTS", "CRM", "FILE_UPLOAD"],
                 price: 15000,
-                currency: "SAR"
+                currency: "SAR",
+                maxUsers: 100,
+                maxBranches: 0,
+                allowCustomDomain: true
             },
             create: {
-                name: "Enterprise",
-                description: "Full suite for large engineering firms.",
+                name: "Elite",
+                description: "Full-scale enterprise management.",
                 allowedModules: ["HR", "FINANCE", "GANTT", "ZATCA", "PROJECTS", "CRM", "FILE_UPLOAD"],
                 price: 15000,
-                currency: "SAR"
+                currency: "SAR",
+                maxUsers: 100,
+                maxBranches: 0,
+                allowCustomDomain: true
             }
         })
 
@@ -26,7 +32,7 @@ export async function seedDemoTenant() {
         const tenant = await (db as any).tenant.upsert({
             where: { slug: "demo" },
             update: {
-                name: "REARCH Engineering & Construction",
+                name: "TO-PO Engineering & Construction",
                 status: "ACTIVE",
                 plan: { connect: { id: enterprisePlan.id } },
                 subscriptionTier: "ENTERPRISE",
@@ -34,7 +40,7 @@ export async function seedDemoTenant() {
                 subscriptionEnd: new Date("2026-12-31"),
             },
             create: {
-                name: "REARCH Engineering & Construction",
+                name: "TO-PO Engineering & Construction",
                 slug: "demo",
                 status: "ACTIVE",
                 plan: { connect: { id: enterprisePlan.id } },
@@ -74,10 +80,10 @@ export async function seedDemoTenant() {
         const hashedPassword = await bcrypt.hash("demo1234", 10)
 
         const adminUser = await (db as any).user.upsert({
-            where: { email: "demo@rearch.sa" },
+            where: { email: "demo@topo-eng.sa" },
             update: { tenantId, role: "ADMIN", name: "Demo Super Admin" },
             create: {
-                email: "demo@rearch.sa",
+                email: "demo@topo-eng.sa",
                 name: "Demo Super Admin",
                 role: "ADMIN",
                 tenantId,
@@ -87,7 +93,7 @@ export async function seedDemoTenant() {
 
         const hrUser = await (db as any).user.create({
             data: {
-                email: "hr@rearch-demo.sa", name: "Sarah Al-Fahad", role: "HR", tenantId, password: hashedPassword,
+                email: "hr@topo-demo.sa", name: "Sarah Al-Fahad", role: "HR", tenantId, password: hashedPassword,
                 employeeProfile: {
                     create: {
                         employeeId: "EMP-001",
@@ -103,7 +109,7 @@ export async function seedDemoTenant() {
 
         const financeUser = await (db as any).user.create({
             data: {
-                email: "finance@rearch-demo.sa", name: "Ahmed Mansour", role: "FINANCE", tenantId, password: hashedPassword,
+                email: "finance@topo-demo.sa", name: "Ahmed Mansour", role: "FINANCE", tenantId, password: hashedPassword,
                 employeeProfile: {
                     create: {
                         employeeId: "EMP-002",
@@ -119,7 +125,7 @@ export async function seedDemoTenant() {
 
         const pmUser = await (db as any).user.create({
             data: {
-                email: "pm@rearch-demo.sa", name: "Eng. Khalid", role: "MANAGER", tenantId, password: hashedPassword,
+                email: "pm@topo-demo.sa", name: "Eng. Khalid", role: "MANAGER", tenantId, password: hashedPassword,
                 employeeProfile: {
                     create: {
                         employeeId: "EMP-003",

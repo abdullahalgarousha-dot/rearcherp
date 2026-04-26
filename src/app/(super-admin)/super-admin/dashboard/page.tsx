@@ -18,7 +18,7 @@ export default async function TenantsPage() {
         redirect('/super-login?access=secure')
     }
 
-    const tenants = await (db as any).tenant.findMany({
+    const tenants = await db.tenant.findMany({
         include: {
             _count: {
                 select: {
@@ -40,7 +40,7 @@ export default async function TenantsPage() {
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight text-white mb-2">Tenant Management</h1>
-                    <p className="text-slate-400">Manage all registered engineering firms on the REARCH platform.</p>
+                    <p className="text-slate-400">Manage all registered engineering firms on the TO-PO platform.</p>
                 </div>
                 <div className="flex gap-3">
                     <ResetDemoButton />
@@ -115,11 +115,15 @@ export default async function TenantsPage() {
                             <tr key={tenant.id} className="hover:bg-slate-800/20 transition-colors group">
                                 <td className="px-6 py-4">
                                     <div className="font-bold text-slate-200">{tenant.name}</div>
-                                    <div className="text-xs text-slate-500 mt-1">{tenant.id}</div>
+                                    <div className="text-xs text-slate-500 mt-1">
+                                        {tenant.id === 't_undefined' ? (
+                                            <Badge variant="outline" className="text-[10px] bg-slate-800 border-slate-700 text-slate-400">INTERNAL_SYSTEM</Badge>
+                                        ) : tenant.id}
+                                    </div>
                                 </td>
                                 <td className="px-6 py-4">
                                     <span className="font-mono text-sm px-2 py-1 rounded bg-slate-950 border border-slate-800 text-slate-400">
-                                        {tenant.slug}.rearch.sa
+                                        {tenant.slug}.topo-eng.sa
                                     </span>
                                 </td>
                                 <td className="px-6 py-4">

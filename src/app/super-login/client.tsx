@@ -26,7 +26,7 @@ export default function SuperLoginClient() {
 
         try {
             // Step 1: verify credentials via server action (handles rate-limiting
-            // and the emergency bypass without hitting the DB for super@rearch.sa)
+            // and the emergency bypass without hitting the DB for super@topo-eng.sa)
             const result = await loginSuperAdmin({ email, password })
             console.log("loginSuperAdmin result:", result)
 
@@ -105,7 +105,7 @@ export default function SuperLoginClient() {
                 <div className="text-center">
                     <ShieldAlert className="mx-auto h-12 w-12 text-red-500 mb-4" />
                     <h2 className="text-3xl font-extrabold">منطقة محظورة</h2>
-                    <p className="mt-2 text-zinc-400">نظام الإدارة المركزية - REArch ERP</p>
+                    <p className="mt-2 text-zinc-400">نظام الإدارة المركزية - TO-PO Engineering</p>
                 </div>
 
                 {/* Visible error banner — never hidden, never a toast */}

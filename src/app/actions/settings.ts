@@ -167,11 +167,29 @@ export async function updateSystemSettings(formData: FormData) {
         const workingHoursPerDay = parseFloat(formData.get("workingHoursPerDay") as string) || 8
         const workingDaysPerWeek = parseInt(formData.get("workingDaysPerWeek") as string) || 5
         const weekendDays = formData.get("weekendDays") as string || "Friday,Saturday"
+        const customDomain = formData.get("customDomain") as string || null
 
         const session = await auth()
         if (!session?.user) return { error: "Unauthorized" }
         const tenantId = (session.user as any)?.tenantId as string | undefined
         const currentTenantId = tenantId && tenantId !== "system" ? tenantId : null
+
+        // Plan evaluation for custom domain
+        if (customDomain && currentTenantId) {
+            const tenant = await (db as any).tenant.findUnique({
+                where: { id: currentTenantId },
+                include: { plan: true }
+            })
+            if (!tenant?.plan?.allowCustomDomain) {
+                return { error: "Custom domain is not allowed on your current plan. Please upgrade." }
+            }
+            
+            // Atomic update for tenant row
+            await (db as any).tenant.update({
+                where: { id: currentTenantId },
+                data: { customDomain: customDomain.toLowerCase().trim() }
+            })
+        }
 
         const updateData = {
             ...(companyNameAr && { companyNameAr }),

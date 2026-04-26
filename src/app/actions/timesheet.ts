@@ -56,12 +56,17 @@ export async function submitTimeLog(data: {
         const totalToday = dayLogs.reduce((sum: number, l: any) => sum + l.hoursLogged, 0)
         const newTotal = totalToday + parseFloat(data.hoursLogged.toString())
 
-        if (data.projectId && data.projectId !== 'OFFICE') {
+        if (data.projectId && (data.projectId !== 'OFFICE' && data.projectId !== 'ADMIN-OVERHEAD')) {
             const project = await db.project.findUnique({
                 where: { id: data.projectId }
             })
 
             if (!project) return { error: "Project not found" }
+
+            // Split Logic: OFFICE vs SITE is mandatory for all production projects
+            if (!data.type || (data.type !== 'OFFICE' && data.type !== 'SITE')) {
+                return { error: "Please categorize your work: 'Office (Design)' or 'Site (Supervision)' is mandatory for project logs." }
+            }
         }
 
         // Calculate Cost — priority: explicit hourlyRate, then TotalSalary / 240
@@ -151,7 +156,7 @@ export async function getTodayLogs() {
             },
             include: {
                 project: {
-                    select: { name: true }
+                    select: { name: true, code: true }
                 }
             },
             orderBy: { createdAt: 'desc' }
@@ -325,5 +330,46 @@ export async function getAllEmployees() {
     } catch (e) {
         console.error(e)
         return []
+    }
+}
+
+/**
+ * Profitability Split: Design (OFFICE) vs Supervision (SITE)
+ * Aggregates total labor costs for a project categorized by work type.
+ */
+export async function getProjectProfitabilitySplit(projectId: string) {
+    const session = await auth()
+    const currentUser = (session?.user as any)
+    const tenantId = currentUser?.tenantId
+    const isGlobalAdmin = currentUser?.role === 'GLOBAL_SUPER_ADMIN'
+    
+    if (!tenantId && !isGlobalAdmin) return { designCost: 0, supervisionCost: 0, totalCost: 0 }
+
+    try {
+        const logs = await db.timeLog.findMany({
+            where: { 
+                projectId,
+                tenantId: isGlobalAdmin ? undefined : tenantId
+            },
+            select: { type: true, cost: true }
+        })
+
+        const split = logs.reduce((acc, log) => {
+            if (log.type === 'OFFICE') acc.designCost += log.cost || 0
+            if (log.type === 'SITE') acc.supervisionCost += log.cost || 0
+            acc.totalCost += log.cost || 0
+            return acc
+        }, { 
+            designCost: 0, 
+            supervisionCost: 0, 
+            totalCost: 0,
+            designLabel: "Design Labor Cost (OFFICE)",
+            supervisionLabel: "Supervision Labor Cost (SITE)"
+        })
+
+        return split
+    } catch (e) {
+        console.error("Error in getProjectProfitabilitySplit:", e)
+        return { designCost: 0, supervisionCost: 0, totalCost: 0 }
     }
 }

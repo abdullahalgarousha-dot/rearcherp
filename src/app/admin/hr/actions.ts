@@ -13,6 +13,7 @@ import path from "path"
  */
 
 import { checkAuth } from "@/lib/auth-guard"
+import { enforceUserLimit } from "@/lib/subscription-guards"
 import { initializeEmployeeDriveStructure, uploadSmartFileToDrive } from "@/lib/google-drive"
 
 /**
@@ -634,6 +635,9 @@ export async function createStaff(formData: FormData) {
     const hashedPassword = await bcrypt.hash(password, 10)
 
     try {
+        // Apply subscription limit
+        await enforceUserLimit(tenantId)
+
         const newUser = await (db as any).user.create({
             data: {
                 tenantId,

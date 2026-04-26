@@ -123,7 +123,7 @@ export default async function ProjectsPage({ searchParams }: { searchParams: Pro
                         <h1 className="text-4xl font-black tracking-tight text-slate-900">PROJECTS HUB</h1>
                     </div>
                     <p className="text-slate-500 font-medium text-lg leading-relaxed">
-                        Operational Control Center for REARCH Engineering & Construction.
+                        Operational Control Center for TO-PO Engineering & Construction.
                     </p>
                 </div>
                 <Link href="/admin/projects/new">

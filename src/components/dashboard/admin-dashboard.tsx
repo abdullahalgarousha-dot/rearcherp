@@ -150,7 +150,7 @@ export function AdminDashboard({
                                 Master Command Center
                             </p>
                             <h1 className="text-2xl font-black text-white leading-none tracking-tight">
-                                {companyProfile?.companyNameEn || "ERP Dashboard"}
+                                {companyProfile?.companyNameEn || "TO-PO Engineering Dashboard"}
                             </h1>
                             {companyProfile?.companyNameAr && (
                                 <p className="text-sm font-bold text-white/50 mt-1" dir="rtl">

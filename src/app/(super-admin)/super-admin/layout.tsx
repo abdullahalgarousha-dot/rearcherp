@@ -25,11 +25,11 @@ export default async function SuperAdminLayout({
                 <div className="p-6 border-b border-slate-800">
                     <div className="flex items-center gap-3">
                         <div className="h-8 w-8 rounded-lg bg-emerald-500 flex items-center justify-center font-black text-slate-950">
-                            R
+                            TP
                         </div>
                         <div>
-                            <h1 className="font-bold tracking-tight text-white leading-tight">REARCH</h1>
-                            <p className="text-[10px] font-medium text-emerald-400 uppercase tracking-widest">Command Pit</p>
+                            <h1 className="font-bold tracking-tight text-white leading-tight">TO-PO</h1>
+                            <p className="text-[10px] font-medium text-emerald-400 uppercase tracking-widest">Engineering Center</p>
                         </div>
                     </div>
                 </div>

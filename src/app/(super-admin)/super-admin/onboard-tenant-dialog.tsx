@@ -138,7 +138,7 @@ export function OnboardTenantDialog({ plans }: { plans: any[] }) {
                                         required
                                         className="bg-slate-900 border-slate-700 font-mono"
                                     />
-                                    <span className="text-slate-500 text-sm">.rearch.sa</span>
+                                    <span className="text-slate-500 text-sm">.topo-eng.sa</span>
                                 </div>
                             </div>
                             <div className="grid gap-2">

@@ -22,7 +22,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
                     const password = credentials.password as string
 
                     // EMERGENCY SUPER ADMIN BYPASS
-                    const adminEmail = process.env.SUPER_ADMIN_EMAIL || "super@rearch.sa"
+                    const adminEmail = process.env.SUPER_ADMIN_EMAIL || "super@topo-eng.sa"
                     const adminPass = process.env.SUPER_ADMIN_PASSWORD || "password"
 
                     if (email === adminEmail && password === adminPass) {

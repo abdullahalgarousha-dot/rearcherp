@@ -873,3 +873,104 @@ export async function approveNCR(id: string) {
         return { error: "Failed to approve NCR" }
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MISSING RESUBMIT ACTIONS
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function resubmitNCR(id: string, formData: FormData) {
+    const session = await auth()
+    const userId = (session?.user as any)?.id
+    const tenantId = (session?.user as any)?.tenantId
+    if (!userId || !tenantId) return { error: "Unauthorized" }
+
+    const file = formData.get("file") as File
+    if (!file || file.size === 0) return { error: "New Revision File required." }
+
+    try {
+        const ncr = await (db as any).nCR.findFirst({
+            where: { id, project: { tenantId } },
+            include: { project: { include: { brand: true } } }
+        })
+        if (!ncr) return { error: "NCR not found or access denied" }
+
+        const nextRev = ncr.currentRev + 1
+        const url = await uploadToSupervisionFolder(
+            tenantId,
+            ncr.project as any,
+            'NCR',
+            file,
+            `Pending Rev ${nextRev} - ${ncr.officeRef} - ${file.name}`
+        )
+
+        await (db as any).nCRRevision.create({
+            data: {
+                ncrId: id,
+                revNumber: nextRev,
+                status: "PENDING",
+                contractorFile: url,
+                userId
+            }
+        })
+
+        await (db as any).nCR.update({
+            where: { id },
+            data: { currentRev: nextRev, status: "PENDING" }
+        })
+
+        revalidatePath('/admin/supervision')
+        return { success: true }
+    } catch (e) {
+        console.error(e)
+        return { error: "Failed to resubmit NCR" }
+    }
+}
+
+export async function resubmitInspectionRequest(id: string, formData: FormData) {
+    const session = await auth()
+    const userId = (session?.user as any)?.id
+    const tenantId = (session?.user as any)?.tenantId
+    if (!userId || !tenantId) return { error: "Unauthorized" }
+
+    const file = formData.get("file") as File
+    if (!file || file.size === 0) return { error: "New Revision File required." }
+
+    try {
+        const ir = await db.inspectionRequest.findFirst({
+            where: { id, project: { tenantId } },
+            include: { project: { include: { brand: true } } }
+        })
+        if (!ir) return { error: "IR not found or access denied" }
+
+        const nextRev = ir.currentRev + 1
+        const url = await uploadToSupervisionFolder(
+            tenantId,
+            ir.project as any,
+            'IR',
+            file,
+            `Pending Rev ${nextRev} - ${ir.officeRef} - ${file.name}`
+        )
+
+        await db.iRRevision.create({
+            data: {
+                irId: id,
+                revNumber: nextRev,
+                status: "PENDING",
+                contractorFile: url,
+                userId
+            }
+        })
+
+        await db.inspectionRequest.update({
+            where: { id },
+            data: { currentRev: nextRev, status: "PENDING" }
+        })
+
+        revalidatePath('/admin/supervision')
+        return { success: true }
+    } catch (e) {
+        console.error(e)
+        return { error: "Failed to resubmit IR" }
+    }
+}
+

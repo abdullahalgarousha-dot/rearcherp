@@ -5,12 +5,12 @@ async function main() {
     console.log("--- DB DIAGNOSTIC START ---")
     try {
         const user = await prisma.user.findUnique({
-            where: { email: 'super@rearch.sa' },
+            where: { email: 'super@topo-eng.sa' },
             include: { userRole: true }
         })
 
         if (!user) {
-            console.log("ERROR: User 'super@rearch.sa' not found in database.")
+            console.log("ERROR: User 'super@topo-eng.sa' not found in database.")
         } else {
             console.log("User Found:")
             console.log("- ID:", user.id)

@@ -13,11 +13,11 @@ import { Toaster } from "sonner";
 
 export async function generateMetadata(): Promise<Metadata> {
     const settings = await getSystemSettings()
-    const companyName = settings.companyNameEn || "ERP"
+    const companyName = settings.companyNameEn || "TO-PO Engineering"
 
     return {
         title: `${companyName} | System`,
-        description: "Multi-brand management system",
+        description: "TO-PO Engineering Management System",
     }
 }
 

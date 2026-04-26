@@ -6,32 +6,9 @@ export type ModuleName = 'HR' | 'FINANCE' | 'GANTT' | 'ZATCA' | 'PROJECTS' | 'CR
 const ADMIN_ROLES = ['GLOBAL_SUPER_ADMIN', 'SUPER_ADMIN', 'ADMIN']
 
 export async function checkFeatureGate(tenantId: string, moduleName: ModuleName): Promise<boolean> {
-    const session = await auth()
-    if (ADMIN_ROLES.includes((session?.user as any)?.role)) return true
-
-    // 1. Fetch Tenant with Plan info
-    const tenant = await (db as any).tenant.findUnique({
-        where: { id: tenantId },
-        include: { plan: true }
-    })
-
-    if (!tenant) return false
-
-    // 2. Fallback for older data (mapped from subscriptionTier)
-    if (!tenant.planId) {
-        const tier = tenant.subscriptionTier // STANDARD, PROFESSIONAL, ENTERPRISE
-        const tierMap: Record<string, ModuleName[]> = {
-            'STANDARD': ['PROJECTS'],
-            'PROFESSIONAL': ['PROJECTS', 'FINANCE', 'CRM'],
-            'ENTERPRISE': ['PROJECTS', 'FINANCE', 'CRM', 'HR', 'GANTT', 'ZATCA', 'FILE_UPLOAD']
-        }
-        const allowed = tierMap[tier] || ['PROJECTS']
-        return allowed.includes(moduleName)
-    }
-
-    // 3. Dynamic Plan Check
-    const allowedModules = (tenant.plan?.allowedModules as string[]) || []
-    return allowedModules.includes(moduleName)
+    // All modules are now unlocked for all tiers per TO-PO rebranding.
+    // Limits apply only to resources (Users, Branches) and Custom Domains.
+    return true
 }
 
 /**

@@ -19,7 +19,7 @@ export function TimesheetWidget({ projects, tasks = [], dailyGoal = 8 }: { proje
     const [projectId, setProjectId] = useState<string>("")
     const [hours, setHours] = useState<string>("1.0")
     const [description, setDescription] = useState<string>("")
-    const [activeTab, setActiveTab] = useState<string>("site")
+    const [activeTab, setActiveTab] = useState<string>("")
 
     useEffect(() => {
         setMounted(true)
@@ -46,6 +46,12 @@ export function TimesheetWidget({ projects, tasks = [], dailyGoal = 8 }: { proje
             return
         }
 
+        // Force Categorization Split: Design vs Supervision
+        if (projectId !== 'OFFICE' && projectId !== 'ADMIN-OVERHEAD' && !activeTab) {
+            toast.error("Please select work location: 'Design (Office)' or 'Supervision (Site)'")
+            return
+        }
+
         setLoading(true)
         const res = await submitTimeLog({
             date: new Date(),
@@ -60,6 +66,7 @@ export function TimesheetWidget({ projects, tasks = [], dailyGoal = 8 }: { proje
             toast.success(res.message || "Time logged successfully")
             setDescription("")
             setHours("1.0")
+            setActiveTab("") // Reset tab selection
             refreshLogs()
         } else {
             toast.error(res.error)
@@ -96,16 +103,13 @@ export function TimesheetWidget({ projects, tasks = [], dailyGoal = 8 }: { proje
                 </div>
             </CardHeader>
             <CardContent>
-                <Tabs defaultValue="site" className="w-full" onValueChange={(val) => {
-                    setActiveTab(val)
-                    if (val === 'office' && !projectId) setProjectId("OFFICE") // Default to office
-                }}>
+                <Tabs value={activeTab} className="w-full" onValueChange={setActiveTab}>
                     <TabsList className="grid w-full grid-cols-2 mb-4">
-                        <TabsTrigger value="site" className="text-xs font-bold gap-2">
-                            <Briefcase className="h-3 w-3" /> عمل الموقع (Site)
+                        <TabsTrigger value="site" className="text-[10px] md:text-xs font-black gap-2">
+                            <Briefcase className="h-3 w-3" /> إشراف موقع (Supervision)
                         </TabsTrigger>
-                        <TabsTrigger value="office" className="text-xs font-bold gap-2 rounded-lg">
-                            <Building2 className="h-3 w-3" /> العمل المكتبي (Office)
+                        <TabsTrigger value="office" className="text-[10px] md:text-xs font-black gap-2 rounded-lg">
+                            <Building2 className="h-3 w-3" /> تصميم مكتبي (Design)
                         </TabsTrigger>
                     </TabsList>
                 </Tabs>
@@ -156,7 +160,7 @@ export function TimesheetWidget({ projects, tasks = [], dailyGoal = 8 }: { proje
                     <Button
                         onClick={handleSubmit}
                         disabled={loading}
-                        className="w-full bg-primary hover:bg-primary/90 text-white font-bold h-10 shadow-lg shadow-primary/20 rounded-xl"
+                        className="w-full bg-primary hover:bg-primary/90 text-white font-black h-10 shadow-lg shadow-primary/20 rounded-xl"
                     >
                         {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Plus className="mr-2 h-4 w-4" /> تسجيل الوقت</>}
                     </Button>
@@ -176,11 +180,16 @@ export function TimesheetWidget({ projects, tasks = [], dailyGoal = 8 }: { proje
                                     {todayLogs.map(log => (
                                         <div key={log.id} className="flex justify-between items-start text-xs p-2 rounded-lg bg-white/40 border border-slate-100 hover:bg-white transition-colors">
                                             <div>
-                                                <p className="font-bold text-slate-900">{log.project?.name || "مشروع غير محدد"}</p>
+                                                <p className="font-bold text-slate-900">
+                                                    {(!log.project || log.project?.code === 'ADMIN-OVERHEAD' || log.projectId === 'OFFICE' || log.projectId === 'ADMIN-OVERHEAD') 
+                                                        ? "General Office / أعمال مكتبية عامة" 
+                                                        : log.project?.name || "مشروع غير محدد"
+                                                    }
+                                                </p>
                                                 <p className="text-slate-500 flex items-center gap-1 mt-0.5">
                                                     <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-black tracking-wider ${log.type === 'SITE' ? 'bg-indigo-100 text-indigo-700' : 'bg-rose-100 text-rose-700'
                                                         }`}>
-                                                        {log.type === 'SITE' ? 'SITE' : 'OFFICE'}
+                                                        {log.type === 'SITE' ? 'SITE (Supervision)' : 'OFFICE (Design)'}
                                                     </span>
                                                     {log.description}
                                                 </p>

@@ -134,7 +134,7 @@ export function TenantActions({ tenant, plans }: TenantActionsProps) {
                     <DropdownMenuItem
                         onClick={handleDelete}
                         className="cursor-pointer focus:bg-red-500/10 text-red-400"
-                        disabled={tenant.slug === 'fts'}
+                        disabled={tenant.slug === 'topo'}
                     >
                         <Trash2 className="mr-2 h-4 w-4" />
                         Delete Tenant

@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
-import { Trash2 } from "lucide-react"
+import { Trash2, Globe } from "lucide-react"
 import {
     updateSystemSettings,
     upsertSystemLookup,
@@ -31,7 +31,7 @@ interface LookupItem {
     isActive: boolean
 }
 
-export function SettingsClient({ initialSettings, lookups, branches }: { initialSettings: any, lookups: LookupItem[], branches: any[] }) {
+export function SettingsClient({ initialSettings, lookups, branches, tenant }: { initialSettings: any, lookups: LookupItem[], branches: any[], tenant: any }) {
     const router = useRouter()
     const [loading, setLoading] = useState(false)
     const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle')
@@ -136,6 +136,43 @@ export function SettingsClient({ initialSettings, lookups, branches }: { initial
                                 <div className="space-y-2 md:col-span-2">
                                     <Label>Office Address</Label>
                                     <Input name="address" defaultValue={initialSettings?.address || ""} className="rounded-xl" />
+                                </div>
+
+                                <div className="space-y-2 md:col-span-2 pt-4 border-t border-slate-100 mt-4">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <Label className="text-lg font-bold">Custom Domain</Label>
+                                            {(!tenant?.plan || !tenant.plan.allowCustomDomain) && (
+                                                <Badge variant="outline" className="text-[10px] uppercase font-black tracking-tighter text-amber-600 border-amber-200 bg-amber-50">Growth+ Plan Required</Badge>
+                                            )}
+                                        </div>
+                                    </div>
+                                    
+                                    {tenant?.plan?.allowCustomDomain ? (
+                                        <div className="flex gap-2">
+                                            <div className="relative flex-1">
+                                                <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none text-slate-400">
+                                                    <Globe className="h-4 w-4" />
+                                                </div>
+                                                <Input 
+                                                    name="customDomain" 
+                                                    placeholder="erp.yourfirm.com" 
+                                                    defaultValue={tenant?.customDomain || ""} 
+                                                    className="rounded-xl pl-10" 
+                                                />
+                                            </div>
+                                            <p className="text-[10px] text-slate-400 mt-1 max-w-sm">
+                                                Enter your custom domain after configuring your DNS CNAME to point to our servers.
+                                            </p>
+                                        </div>
+                                    ) : (
+                                        <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 text-center">
+                                            <p className="text-sm text-slate-500 font-medium italic">
+                                                Custom domain support is not available on the <b>Basic</b> tier. 
+                                                Please contact support to upgrade to <b>Growth</b> or <b>Elite</b>.
+                                            </p>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
 

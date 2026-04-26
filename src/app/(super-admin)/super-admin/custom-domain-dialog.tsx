@@ -55,7 +55,7 @@ export function CustomDomainDialog({ tenant, open, onOpenChange }: CustomDomainD
                             Map Custom Domain
                         </DialogTitle>
                         <DialogDescription className="text-slate-400">
-                            Connect a personal domain for <strong>{tenant.slug}.rearch.sa</strong>
+                            Connect a personal domain for <strong>{tenant.slug}.topo-eng.sa</strong>
                         </DialogDescription>
                     </DialogHeader>
                     <div className="grid gap-4 py-6">

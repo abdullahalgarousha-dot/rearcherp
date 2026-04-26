@@ -7,7 +7,7 @@ const MAX_ATTEMPTS = 5
 const COOLDOWN_MINUTES = 15
 
 // Emergency super admin credentials (plain-text bypass — no bcrypt)
-const EMERGENCY_EMAIL = (process.env.SUPER_ADMIN_EMAIL || "super@rearch.sa").toLowerCase().trim()
+const EMERGENCY_EMAIL = (process.env.SUPER_ADMIN_EMAIL || "super@topo-eng.sa").toLowerCase().trim()
 const EMERGENCY_PASS = process.env.SUPER_ADMIN_PASSWORD || "password"
 
 export async function loginSuperAdmin({

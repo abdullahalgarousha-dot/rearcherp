@@ -40,7 +40,7 @@ async function main() {
     await seedRoles()
 
     // 3. Provision GLOBAL_SUPER_ADMIN (Absolute Override)
-    const email = "super@rearch.sa"
+    const email = "super@topo-eng.sa"
     const password = await bcrypt.hash("SecurePassword123!", 10)
 
     const role = await (prisma as any).role.findFirst({

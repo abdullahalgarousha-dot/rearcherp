@@ -2,11 +2,15 @@ import { PrismaClient } from '@prisma/client'
 import { seedRoles } from "./seed-roles"
 import { seedLookups } from "./seed-lookups"
 import { seedProjectTypes } from "./seed-project-types"
+import { seedPlans } from "./seed-plans"
 
 const prisma = new PrismaClient()
 
 async function main() {
-    // 0. Seed Roles (RBAC)
+    // 0. Seed Subscription Plans
+    await seedPlans()
+
+    // 0.1 Seed Roles (RBAC)
     await seedRoles()
 
     // 0.1 Seed System Lookups

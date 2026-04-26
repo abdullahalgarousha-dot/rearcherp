@@ -27,7 +27,7 @@ export function buildTenantUrl(slug: string, path: string = "/dashboard"): strin
         (typeof window !== "undefined"
             ? window.location.hostname.split(".").slice(1).join(".") ||
               window.location.hostname
-            : "rearcherp.vercel.app")
+            : "topo-eng.sa")
 
     return `https://${slug}.${baseDomain}${path}`
 }

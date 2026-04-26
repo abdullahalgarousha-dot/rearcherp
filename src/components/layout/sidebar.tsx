@@ -64,7 +64,7 @@ export function Sidebar({ className, menuLinks = [], settings, user }: SidebarPr
                         </div>
                     )}
                     <div>
-                        <h1 className="text-2xl font-bold tracking-tight">{settings?.companyNameEn || 'ERP'}</h1>
+                        <h1 className="text-2xl font-bold tracking-tight">{settings?.companyNameEn || 'TO-PO Engineering'}</h1>
                         <p className="text-xs text-primary-foreground/60">{settings?.companyNameAr || 'Architectural & Eng.'}</p>
                     </div>
                 </div>
@@ -173,7 +173,7 @@ export function Sidebar({ className, menuLinks = [], settings, user }: SidebarPr
                         </div>
                         <div>
                             <p className="text-sm font-medium">{user?.name || 'Admin User'}</p>
-                            <p className="text-xs text-primary-foreground/50">{user?.email || 'admin@fts.com'}</p>
+                            <p className="text-xs text-primary-foreground/50">{user?.email || 'admin@topo-eng.sa'}</p>
                         </div>
                     </div>
                 </div>

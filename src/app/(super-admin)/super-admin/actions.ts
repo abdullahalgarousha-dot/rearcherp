@@ -30,7 +30,7 @@ export async function getAllTenants() {
         throw new Error("Unauthorized")
     }
 
-    return await (db as any).tenant.findMany({
+    return await db.tenant.findMany({
         include: {
             plan: true,
             _count: {
@@ -50,7 +50,7 @@ export async function getAllPlans() {
         throw new Error("Unauthorized")
     }
 
-    return await (db as any).subscriptionPlan.findMany({
+    return await db.subscriptionPlan.findMany({
         orderBy: { createdAt: 'asc' }
     })
 }
@@ -80,9 +80,9 @@ export async function upsertPlan(data: {
         }
 
         if (data.id) {
-            await (db as any).subscriptionPlan.update({ where: { id: data.id }, data: planData })
+            await db.subscriptionPlan.update({ where: { id: data.id }, data: planData })
         } else {
-            await (db as any).subscriptionPlan.create({ data: planData })
+            await db.subscriptionPlan.create({ data: planData })
         }
 
         revalidatePath('/super-admin/plans')
@@ -101,7 +101,7 @@ export async function deletePlan(planId: string) {
 
     try {
         // Check if tenants are assigned to this plan
-        const count = await (db as any).tenant.count({
+        const count = await db.tenant.count({
             where: { planId }
         })
 
@@ -109,7 +109,7 @@ export async function deletePlan(planId: string) {
             return { error: `Cannot delete plan. It is assigned to ${count} tenants.` }
         }
 
-        await (db as any).subscriptionPlan.delete({
+        await db.subscriptionPlan.delete({
             where: { id: planId }
         })
 
@@ -142,13 +142,13 @@ export async function onboardTenant(data: {
 
         // bcrypt is CPU-bound — must run BEFORE the transaction to avoid blocking
         // the DB connection pool for the duration of the hash computation.
-        const tempPassword = data.adminPassword || `REARCH-${Math.random().toString(36).slice(-8).toUpperCase()}`
+        const tempPassword = data.adminPassword || `TOPO-${Math.random().toString(36).slice(-8).toUpperCase()}`
         const hashedPassword = await bcrypt.hash(tempPassword, 10)
 
         // TARGET 1: Single atomic transaction — if any step fails (e.g. duplicate
         // admin email), ALL prior writes (tenant, branch, brand, roles …) roll back
         // automatically.  No orphaned tenant records are left in the database.
-        const { tenant, admin } = await (db as any).$transaction(async (tx: any) => {
+        const { tenant, admin } = await db.$transaction(async (tx: any) => {
 
             // ── 1. Create Tenant ──────────────────────────────────────────
             const tenant = await tx.tenant.create({
@@ -312,7 +312,7 @@ export async function onboardTenant(data: {
             })
 
             // Also stamp the root folder ID on the tenant for Drive health checks
-            await (db as any).tenant.update({
+            await db.tenant.update({
                 where: { id: tenant.id },
                 data: { driveRootFolderId: driveSettings.driveFolderId },
             })
@@ -371,7 +371,7 @@ export async function toggleTenantStatus(tenantId: string, currentStatus: string
 
     const newStatus = currentStatus === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE'
 
-    await (db as any).tenant.update({
+    await db.tenant.update({
         where: { id: tenantId },
         data: { status: newStatus }
     })
@@ -387,7 +387,7 @@ export async function updateTenantDomain(tenantId: string, customDomain: string 
     }
 
     try {
-        await (db as any).tenant.update({
+        await db.tenant.update({
             where: { id: tenantId },
             data: { customDomain: customDomain?.toLowerCase().trim() || null }
         })
@@ -409,7 +409,7 @@ export async function changeTenantPlan(tenantId: string, planId: string | null) 
     }
 
     try {
-        await (db as any).tenant.update({
+        await db.tenant.update({
             where: { id: tenantId },
             data: { planId: planId }
         })
@@ -428,7 +428,7 @@ export async function updateTenant(tenantId: string, data: { name: string, statu
     }
 
     try {
-        await (db as any).tenant.update({
+        await db.tenant.update({
             where: { id: tenantId },
             data: {
                 name: data.name,
@@ -452,7 +452,7 @@ export async function deleteTenant(tenantId: string) {
 
     try {
         // Find tenant and associated data
-        const tenant = await (db as any).tenant.findUnique({
+        const tenant = await db.tenant.findUnique({
             where: { id: tenantId },
             include: { users: true }
         })
@@ -465,7 +465,7 @@ export async function deleteTenant(tenantId: string) {
         }
 
         // Deletion cascading handles child records if schema is configured
-        await (db as any).tenant.delete({
+        await db.tenant.delete({
             where: { id: tenantId }
         })
 
@@ -506,7 +506,7 @@ export async function logImpersonation(tenantId: string, tenantSlug: string) {
         // TARGET 3: Use the impersonated tenant's ID as the FK.  The previous
         // hardcoded 'system' string is not a valid Tenant record and throws a
         // P2003 foreign-key constraint violation at runtime.
-        await (db as any).auditLog.create({
+        await db.auditLog.create({
             data: {
                 tenantId: tenantId,
                 userId: session.user.id,
